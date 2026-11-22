@@ -30,10 +30,19 @@
   const NUDGE_MAX_MS = 6000;
   const REMOTE_QUIET_MS = 300; // ignore all video events right after applying a remote command
   const HEARTBEAT_GRACE_MS = 1500; // ignore heartbeats sent before/around our latest command
-  const REVERT_WINDOW_MS = 800; // a play/pause this soon after a remote one, without user input, is the player undoing it
-  const USER_INPUT_MS = 1200; // input this recent means a play/pause event came from the person
+  // After we apply a remote command the site's player settles for a moment: it buffers, makes small
+  // automatic seeks, and sometimes pauses/resumes on its own. Anything it does in this window that a
+  // person didn't do is never sent to the others (it used to bounce back and freeze their video);
+  // if it went against the command, the command is re-applied.
+  const SETTLE_MS = 3000;
+  const AUTO_SEEK_IGNORE = 3; // seconds: a seek this small that nobody asked for is the player's own (gap skip)
+  const LOCAL_WINS_MS = 4000; // after a person's own play/pause/seek, older state from others can't undo it
+  const DRIFT_SEEK_LIMIT = 3; // drift-correction seeks within DRIFT_SEEK_WINDOW_MS before backing off
+  const DRIFT_SEEK_WINDOW_MS = 20000;
+  const DRIFT_BACKOFF_MS = 30000;
+  const USER_INPUT_MS = 600; // input this recent means a play/pause/seek came from the person
   const SEEK_DEBOUNCE_MS = 250; // scrubbing fires many `seeked` events
-  const EVENTS = ['play', 'pause', 'seeked', 'ratechange', 'waiting', 'playing', 'canplay'];
+  const EVENTS = ['play', 'pause', 'seeking', 'seeked', 'ratechange', 'waiting', 'playing', 'canplay', 'timeupdate'];
 
   const adapterDef = [WP.adapters.youtube, WP.adapters.netflix]
     .find((a) => a && a.matches(location.hostname)) || WP.adapters.generic;
@@ -50,6 +59,13 @@
   let lastCommandAt = 0;
   let lastApplied = { action: null, at: 0, retries: 0 }; // last remote play/pause we applied
   let lastUserInputAt = 0;
+  let settleUntil = 0; // see SETTLE_MS
+  let lastLocalActionAt = 0; // a person here played/paused/seeked and we told the others
+  let posSample = null; // { t, at, paused, rate }: last known position, to tell big seeks from tiny ones
+  let seekJump = Infinity; // size of the current seek, measured when it started
+  let seekByPerson = false; // the current seek started right after a click/key/drag
+  let driftSeeks = []; // times of recent drift-correction seeks
+  let driftBackoffUntil = 0;
   let mutedBySync = false;
   let buffering = false;
   let baseRate = 1; // the "real" playback rate (excludes drift nudges)
@@ -97,10 +113,20 @@
   }
 
   // Real clicks/keys in this frame: tells a person's play/pause apart from the player's own.
-  for (const type of ['pointerdown', 'keydown', 'touchstart']) {
+  // One click/key press = one action: once it has produced a play/pause/seek it is used up, so the
+  // player's own follow-up events (buffering blips etc.) can't pass as the person's.
+  let inputUsedUntil = 0;
+  for (const type of ['pointerdown', 'click', 'keydown', 'touchstart', 'pointermove']) {
     window.addEventListener(type, (e) => {
-      if (e.isTrusted) lastUserInputAt = Date.now();
+      if (!e.isTrusted) return;
+      if (type === 'pointermove' && !e.buttons) return; // only dragging (a seek bar) counts
+      if (type === 'click' && Date.now() < inputUsedUntil) return; // the tail of a press already used
+      lastUserInputAt = Date.now();
     }, { capture: true, passive: true });
+  }
+  function useUpInput() {
+    lastUserInputAt = 0;
+    inputUsedUntil = Date.now() + 1000;
   }
 
   const ctx = {
@@ -178,7 +204,8 @@
     adapter = adapterDef.create(v, ctx);
     baseRate = adapter.getRate() || 1;
     for (const t of EVENTS) v.addEventListener(t, onVideoEvent);
-    if (party.inRoom && !party.isHost) requestSync();
+    posSample = null;
+    if (party.inRoom && !party.isHost && Date.now() - lastLocalActionAt > LOCAL_WINS_MS) requestSync();
     if (party.inRoom && party.isHost) sendHeartbeat();
   }
 
@@ -212,8 +239,25 @@
   // Local events → server
   // -------------------------------------------------------------------------
 
+  function sampleExpected(now = Date.now()) {
+    if (!posSample) return null;
+    return posSample.paused ? posSample.t : posSample.t + ((now - posSample.at) / 1000) * (posSample.rate || 1);
+  }
+
   function onVideoEvent(e) {
     const type = e.type;
+    if (e.target !== video) return;
+    if (type === 'timeupdate') {
+      if (!video.seeking) posSample = { t: video.currentTime, at: Date.now(), paused: video.paused, rate: video.playbackRate };
+      return;
+    }
+    if (type === 'seeking') {
+      const expected = sampleExpected();
+      seekJump = expected == null ? Infinity : Math.abs(video.currentTime - expected);
+      seekByPerson = Date.now() - lastUserInputAt <= USER_INPUT_MS;
+      if (seekByPerson) useUpInput();
+      return;
+    }
     if (type === 'waiting') {
       buffering = true;
       return;
@@ -222,27 +266,41 @@
       buffering = false;
       return;
     }
-    if (!party.inRoom || !adapter || e.target !== video) return;
+    if (!party.inRoom || !adapter) return;
+    posSample = { t: video.currentTime, at: Date.now(), paused: video.paused, rate: video.playbackRate };
 
     if (consumeExpectation(type)) return; // caused by us applying a remote command
     if (type === 'ratechange' && nudge) return; // drift nudge, not a user action
     if (adapter.isAdPlaying()) return;
 
-    // The site's player flipped back right after we applied a remote play/pause, and nobody touched
-    // anything here: re-apply instead of broadcasting (that would stop everyone else too).
     const now = Date.now();
-    const opposite = (type === 'pause' && lastApplied.action === 'play') || (type === 'play' && lastApplied.action === 'pause');
-    if (opposite && now - lastApplied.at < REVERT_WINDOW_MS && now - lastUserInputAt > USER_INPUT_MS && lastApplied.retries < 2) {
-      lastApplied.retries++;
-      debug('player undid remote', lastApplied.action, '→ re-applying');
-      setTimeout(() => {
-        if (!adapter) return;
-        if (lastApplied.action === 'play') doPlay(true);
-        else doPause(true);
-      }, 150);
-      return;
+    // Seeks can finish well after the click (loading), so they count from when they started.
+    const byPerson = type === 'seeked' ? seekByPerson : now - lastUserInputAt <= USER_INPUT_MS;
+
+    if (!byPerson) {
+      // The player's own small seeks (skipping a gap in the stream, buffering fixes) are not news.
+      if (type === 'seeked' && seekJump < AUTO_SEEK_IGNORE) {
+        debug('ignored automatic seek of', seekJump.toFixed(2) + 's');
+        return;
+      }
+      // Right after a play/pause/seek (ours or someone else's) the player settles. Never pass that on.
+      if (now < settleUntil) {
+        const opposite = (type === 'pause' && lastApplied.action === 'play') || (type === 'play' && lastApplied.action === 'pause');
+        if (opposite && lastApplied.retries < 2) {
+          lastApplied.retries++;
+          debug('player undid remote', lastApplied.action, '→ re-applying');
+          setTimeout(() => {
+            if (!adapter || !video || !video.isConnected) return; // the player replaced its video element
+            if (lastApplied.action === 'play') doPlay(true);
+            else doPause(true);
+          }, 150);
+        } else {
+          debug('not echoing', type, 'while the player settles');
+        }
+        return;
+      }
     }
-    if (Date.now() < quietUntil) return;
+    if (now < quietUntil && !byPerson) return;
 
     if (type === 'ratechange') {
       const r = adapter.getRate();
@@ -255,6 +313,15 @@
       return;
     }
 
+    if (byPerson) {
+      if (type !== 'seeked') useUpInput();
+      lastLocalActionAt = now;
+      // What the person chose is what we keep: if the player now pauses/resumes/seeks on its own
+      // (buffering, swapping its video element…), that stays here and the choice is re-applied.
+      settleUntil = now + SETTLE_MS;
+      const intent = type === 'play' || type === 'pause' ? type : video.paused ? 'pause' : 'play';
+      lastApplied = { action: intent, at: now, retries: 0 };
+    }
     if (type === 'seeked') {
       clearTimeout(seekTimer);
       seekTimer = setTimeout(() => emit('seek'), SEEK_DEBOUNCE_MS);
@@ -267,7 +334,6 @@
     if (!adapter || !party.inRoom) return;
     const now = Date.now();
     debug('local', action, 'at', adapter.getTime().toFixed(2));
-    lastApplied = { action: null, at: 0, retries: 0 };
     lastCommandAt = now;
     send({
       cmd: 'playback',
@@ -316,7 +382,7 @@
   // -------------------------------------------------------------------------
 
   function targetTime(d) {
-    const elapsed = Math.min(Math.max((Date.now() - d.sentAt) / 1000, 0), 30);
+    const elapsed = Math.min(Math.max((Date.now() - d.sentAt) / 1000, 0), 15);
     return d.paused ? d.currentTime : d.currentTime + elapsed * (d.playbackRate || 1);
   }
 
@@ -438,6 +504,7 @@
     }
     clearTimeout(seekTimer); // a remote command wins over a pending local seek broadcast
     lastCommandAt = Date.now();
+    settleUntil = lastCommandAt + SETTLE_MS;
     markRemote();
     stopNudge();
 
@@ -471,8 +538,17 @@
       adActive = true;
       return;
     }
+    const now = Date.now();
     const forced = !!d.sync;
     if (!forced && d.sentAt < lastCommandAt + HEARTBEAT_GRACE_MS) return; // stale vs. a newer command
+    // Our own play/pause/seek just now beats any state the others reported before it reached them.
+    if (d.sentAt < lastLocalActionAt + HEARTBEAT_GRACE_MS && now - lastLocalActionAt < LOCAL_WINS_MS * 2) return;
+    // A clock that is way off (sent "in the future", or ancient) can't be used to compute a position.
+    const age = now - d.sentAt;
+    if (age < -3000 || age > 15000) {
+      debug('heartbeat with unusable time (age', age, 'ms) ignored');
+      return;
+    }
 
     if (Math.abs(baseRate - d.playbackRate) > 0.001) {
       markRemote();
@@ -480,21 +556,37 @@
     }
     if (d.paused && !adapter.isPaused()) {
       markRemote();
+      settleUntil = now + SETTLE_MS;
       doPause();
     } else if (!d.paused && adapter.isPaused()) {
       markRemote();
+      settleUntil = now + SETTLE_MS;
       doPlay();
     }
 
-    if (buffering && !forced) return;
+    // Don't fight a video that is still loading: seeking again restarts the loading.
+    if (!forced && (buffering || video.seeking || video.readyState < 3)) return;
     const t = targetTime(d);
     const drift = adapter.getTime() - t; // > 0: we are ahead
     const abs = Math.abs(drift);
     const hardLimit = forced ? SYNC_SEEK_DRIFT : d.paused ? PAUSED_SEEK_DRIFT : HARD_SEEK_DRIFT;
 
     if (abs > hardLimit) {
+      if (!forced) {
+        if (now < driftBackoffUntil) return;
+        driftSeeks = driftSeeks.filter((at) => now - at < DRIFT_SEEK_WINDOW_MS);
+        if (driftSeeks.length >= DRIFT_SEEK_LIMIT) {
+          // Seeking keeps not helping (slow connection / player that can't land there): stop pulling.
+          driftBackoffUntil = now + DRIFT_BACKOFF_MS;
+          driftSeeks = [];
+          debug('drift corrections not helping → pausing them for', DRIFT_BACKOFF_MS / 1000, 's');
+          return;
+        }
+        driftSeeks.push(now);
+      }
       stopNudge();
       markRemote();
+      settleUntil = now + SETTLE_MS;
       doSeek(t);
     } else if (!d.paused && abs > SOFT_DRIFT) {
       startNudge(drift);

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Tandem",
   "short_name": "Tandem",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Watch videos in sync with friends: shared play, pause, seek, chat, emoji reactions and video calls. Everyone streams from their own account.",
   "minimum_chrome_version": "116",
   "permissions": [

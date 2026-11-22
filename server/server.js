@@ -54,6 +54,7 @@ const CONFIG = {
   // Optional shared secret. When set, only clients that know it can connect (and get the TURN
   // relay login). Friends enter it in the extension popup → Server settings.
   partyKey: (process.env.PARTY_KEY || '').trim(),
+  syncFallbackMs: 1500, // a sync request waits this long for a fresh host heartbeat
 };
 
 const SERVER_VERSION = require('./package.json').version;
@@ -190,6 +191,14 @@ function broadcast(room, type, payload, exceptId = null) {
   for (const m of room.members.values()) {
     if (m.id !== exceptId && m.connected) send(m.ws, type, payload);
   }
+}
+
+function takeSyncWaiters(room) {
+  const waiting = room.syncWaiters || new Set();
+  room.syncWaiters = new Set();
+  clearTimeout(room.syncTimer);
+  room.syncTimer = null;
+  return waiting;
 }
 
 function broadcastMembers(room) {
@@ -366,6 +375,7 @@ function addMember(room, ws, nickname, avatar = '🙂') {
 }
 
 function deleteRoom(room, reason) {
+  clearTimeout(room.syncTimer);
   for (const m of room.members.values()) {
     if (m.graceTimer) clearTimeout(m.graceTimer);
     if (m.ws) {
@@ -569,15 +579,34 @@ const handlers = {
       return;
     }
     room.lastState = { ...data };
-    broadcast(room, 'heartbeat', { ...data, from: member.id }, member.id);
+    const waiting = takeSyncWaiters(room);
+    for (const m of room.members.values()) {
+      if (m.id === member.id || !m.connected) continue;
+      send(m.ws, 'heartbeat', { ...data, from: member.id, ...(waiting.has(m.id) ? { sync: true } : {}) });
+    }
   },
 
   sync_request(ws, data, room, member) {
-    if (room.lastState) send(ws, 'heartbeat', { ...room.lastState, from: room.hostId, sync: true });
-    // Ask the host for a fresh heartbeat so the requester gets an exact position.
-    if (room.hostId !== member.id) {
-      const host = room.members.get(room.hostId);
-      if (host && host.connected) send(host.ws, 'sync_request', { from: member.id });
+    // Answer with a FRESH position from the host. The stored state can be seconds old (e.g. still
+    // "paused" from before someone pressed play) and a sync answer is applied without question, so it
+    // is only used when the host can't answer in time.
+    const host = room.hostId !== member.id ? room.members.get(room.hostId) : null;
+    if (!host || !host.connected) {
+      if (room.lastState) send(ws, 'heartbeat', { ...room.lastState, from: room.hostId, sync: true });
+      return;
+    }
+    if (!room.syncWaiters) room.syncWaiters = new Set();
+    room.syncWaiters.add(member.id);
+    send(host.ws, 'sync_request', { from: member.id });
+    if (!room.syncTimer) {
+      room.syncTimer = setTimeout(() => {
+        const waiting = takeSyncWaiters(room);
+        if (!room.lastState) return;
+        for (const id of waiting) {
+          const m = room.members.get(id);
+          if (m && m.connected) send(m.ws, 'heartbeat', { ...room.lastState, from: room.hostId, sync: true });
+        }
+      }, CONFIG.syncFallbackMs);
     }
   },
 

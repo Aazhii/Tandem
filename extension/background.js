@@ -101,7 +101,8 @@ let suppressWindowLeave = false;
 
 const ready = (async () => {
   try {
-    const { wp, wpLog } = await chrome.storage.session.get(['wp', 'wpLog']);
+    const { wp, wpLog, wpClock } = await chrome.storage.session.get(['wp', 'wpLog', 'wpClock']);
+    if (wpClock && Number.isFinite(wpClock.offset) && Date.now() - wpClock.at < 6 * 3600_000) clockOffset = wpClock.offset;
     if (wp) Object.assign(session, wp);
     if (Array.isArray(wpLog)) chatLog = wpLog;
     const { autoFollow, server } = await chrome.storage.local.get(['autoFollow', 'server']);
@@ -430,6 +431,9 @@ function onPong(msg) {
   if (offsetSamples.length > 8) offsetSamples.shift();
   // The lowest-RTT sample is the most trustworthy.
   clockOffset = offsetSamples.reduce((a, b) => (b.rtt < a.rtt ? b : a)).offset;
+  // Keep it across service-worker restarts, so positions are right straight away (not off by the
+  // difference between this computer's clock and the server's until new pongs arrive).
+  chrome.storage.session.set({ wpClock: { offset: clockOffset, at: now } }).catch(() => {});
 }
 
 // ---------------------------------------------------------------------------
@@ -497,7 +501,7 @@ function onJoined(msg, created) {
 
 // Oldest server this extension works with. Raise it only when the server protocol changes
 // (so extension-only updates don't ask the host to restart the server).
-const MIN_SERVER_VERSION = '1.5.0';
+const MIN_SERVER_VERSION = '1.5.1';
 
 /** The server must support everything this extension uses, or newer features silently fail. */
 function checkServerVersion(serverVersion) {

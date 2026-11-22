@@ -25,3 +25,20 @@ jobs:
         run: node -e "JSON.parse(require('fs').readFileSync('extension/manifest.json','utf8'))"
       - name: Package the extension
         run: ./scripts/package-extension.sh
+
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install server and test dependencies
+        run: |
+          (cd server && npm ci)
+          (cd tests/e2e && npm install)
+      - name: Install Chrome for Testing
+        run: npx --yes @puppeteer/browsers install chrome@stable --path ~/.cache/puppeteer
+      - name: Browser tests (two Chromes with the extension)
+        working-directory: tests/e2e
+        run: npm test

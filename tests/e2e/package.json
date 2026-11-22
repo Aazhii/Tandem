@@ -1,0 +1,11 @@
+{
+  "name": "tandem-e2e",
+  "private": true,
+  "description": "Browser tests: two real Chrome instances with the extension, a local relay server and test video pages.",
+  "scripts": {
+    "test": "node run-all.js"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^24.0.0"
+  }
+}

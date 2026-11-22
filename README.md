@@ -207,8 +207,11 @@ If people in a party run different versions, the chat shows a warning. When the 
 ## For developers
 
 ```bash
-cd server && npm install && npm test     # server protocol tests
+cd server && npm install && npm test        # server protocol tests
+cd tests/e2e && npm install && npm test     # browser tests: two Chromes with the extension
 ```
+
+The browser tests need Chrome for Testing once: `npx @puppeteer/browsers install chrome@stable --path ~/.cache/puppeteer`. They cover playback with real clicks (including a player that misbehaves like streaming sites do), late join, drift correction, host-only mode, reloads, server restarts, fullscreen beside the chat, and the server settings/party key.
 
 To try it on one machine: run `npm start` in `server/`, load the `extension/` folder unpacked in two Chrome profiles, and set the server to `ws://localhost:8080` in **⚙ Server settings**. Tests also run automatically on GitHub for every push.
 

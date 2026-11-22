@@ -174,18 +174,31 @@ test('host-only control enforced server-side', async () => {
   guest.close();
 });
 
-test('late joiner sync_request gets host state and host is asked for fresh heartbeat', async () => {
+test('sync_request is answered with a FRESH host heartbeat (stored state only as fallback)', async () => {
   const { c: host, created } = await createParty();
-  host.send('heartbeat', { currentTime: 123.4, paused: false, playbackRate: 1, sentAt: Date.now() });
+  host.send('heartbeat', { currentTime: 123.4, paused: true, playbackRate: 1, sentAt: Date.now() });
   await new Promise((r) => setTimeout(r, 50));
   const { c: guest, joined } = await joinParty(created.roomId);
   assert.equal(joined.lastState.currentTime, 123.4);
   guest.send('sync_request', {});
-  const hb = await guest.next('heartbeat');
-  assert.equal(hb.currentTime, 123.4);
-  assert.equal(hb.sync, true);
   const req = await host.next('sync_request');
   assert.equal(req.from, joined.clientId);
+  await guest.none('heartbeat', 150); // the old "paused at 123.4" is not sent as a forced sync
+  host.send('heartbeat', { currentTime: 130, paused: false, playbackRate: 1, sentAt: Date.now() });
+  const hb = await guest.next('heartbeat');
+  assert.equal(hb.currentTime, 130);
+  assert.equal(hb.paused, false);
+  assert.equal(hb.sync, true);
+  // Host doesn't answer → stored state after the fallback delay.
+  guest.send('sync_request', {});
+  await host.next('sync_request');
+  const fb = await guest.next('heartbeat', () => true, 2500);
+  assert.equal(fb.currentTime, 130);
+  assert.equal(fb.sync, true);
+  // Regular heartbeats are not marked as sync.
+  host.send('heartbeat', { currentTime: 140, paused: false, playbackRate: 1, sentAt: Date.now() });
+  const plain = await guest.next('heartbeat');
+  assert.equal(plain.sync, undefined);
   host.close();
   guest.close();
 });

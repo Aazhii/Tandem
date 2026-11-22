@@ -4,3 +4,4 @@ dist/
 .env
 server/.env
 extension/config.local.js
+tests/e2e/node_modules/
