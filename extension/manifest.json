@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Watch Party",
-  "short_name": "Watch Party",
-  "version": "1.4.0",
+  "name": "Tandem",
+  "short_name": "Tandem",
+  "version": "1.5.0",
   "description": "Watch videos in sync with friends: shared play, pause, seek, chat, emoji reactions and video calls. Everyone streams from their own account.",
   "minimum_chrome_version": "116",
   "permissions": [
@@ -17,7 +17,7 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "Watch Party",
+    "default_title": "Tandem",
     "default_popup": "popup/popup.html",
     "default_icon": {
       "16": "icons/icon16.png",

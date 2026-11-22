@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Watch Party</title>
+    <title>Tandem</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <main>
       <header class="top">
         <img src="../icons/icon48.png" alt="" class="logo" width="28" height="28" />
-        <h1>Watch Party</h1>
+        <h1>Tandem</h1>
         <span class="status" id="status" data-status="idle"><i></i><span id="status-text">Offline</span></span>
       </header>
 
@@ -19,6 +19,31 @@
         <span id="error-text"></span>
         <button type="button" class="link" id="error-dismiss" aria-label="Dismiss">✕</button>
       </div>
+
+      <!-- Which party server to use (address + optional party key) -->
+      <form class="server-card" id="server-form" hidden>
+        <div class="server-head">
+          <strong>Server settings</strong>
+          <button type="button" class="link" id="server-close" aria-label="Close">✕</button>
+        </div>
+        <p class="hint" id="server-intro">Everyone in a party must use the same server. Get the address (and party key, if there is one) from whoever runs it.</p>
+        <label class="field">
+          <span>Server address</span>
+          <input id="server-url" type="text" placeholder="wss://your-server.ngrok-free.dev" autocomplete="off" spellcheck="false" />
+        </label>
+        <label class="field">
+          <span>Party key <em class="optional">(only if the server has one)</em></span>
+          <div class="row">
+            <input id="server-key" type="password" autocomplete="off" spellcheck="false" />
+            <button type="button" class="btn small ghost" id="server-key-show">Show</button>
+          </div>
+        </label>
+        <div class="row">
+          <button type="submit" class="btn small primary" id="server-save">Save</button>
+          <button type="button" class="btn small ghost" id="server-share">Copy for a friend</button>
+        </div>
+        <p class="hint" id="server-msg"></p>
+      </form>
 
       <!-- Not in a party -->
       <section id="view-lobby" hidden>
@@ -97,7 +122,7 @@
 
       <footer>
         <span>v<span id="version"></span></span>
-        <span class="server" id="server" title=""></span>
+        <button type="button" class="link server" id="server" title="Server settings">⚙ Server settings</button>
       </footer>
     </main>
     <script src="popup.js"></script>

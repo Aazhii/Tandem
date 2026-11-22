@@ -6,7 +6,9 @@ process.env.RECONNECT_GRACE_MS = '300';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { WebSocket } = require('ws');
-const { createServer, rooms } = require('../server');
+const { createServer, rooms, CONFIG } = require('../server');
+
+CONFIG.partyKey = ''; // a PARTY_KEY in server/.env must not affect the tests (one test sets it)
 
 let server;
 let url;
@@ -480,4 +482,25 @@ test('ice_servers is sent after joining', async () => {
   await guest.next('ice_servers');
   host.close();
   guest.close();
+});
+
+test('party key: wrong or missing key is refused, right key works', async () => {
+  CONFIG.partyKey = 's3cret key';
+  try {
+    const closeCode = (u) => new Promise((resolve) => {
+      const ws = new WebSocket(u);
+      ws.on('close', (code) => resolve(code));
+      ws.on('error', () => {});
+    });
+    assert.equal(await closeCode(url), 4401);
+    assert.equal(await closeCode(`${url}/?key=wrong`), 4401);
+    const ok = new WebSocket(`${url}/?key=${encodeURIComponent('s3cret key')}`);
+    await new Promise((r) => ok.once('open', r));
+    const got = new Promise((r) => ok.once('message', (m) => r(JSON.parse(m.toString()))));
+    ok.send(JSON.stringify({ type: 'create_room', nickname: 'K', version: '1.5.0' }));
+    assert.equal((await got).type, 'room_created');
+    ok.close();
+  } finally {
+    CONFIG.partyKey = '';
+  }
 });

@@ -1,5 +1,5 @@
 /**
- * Watch Party page bridge — runs in the page's MAIN world (not the extension's isolated world).
+ * Tandem page bridge — runs in the page's MAIN world (not the extension's isolated world).
  *
  * Exposes a tiny command channel over window.postMessage so the Netflix adapter can use
  * Netflix's internal player API (seeking via `video.currentTime` crashes the Netflix player).

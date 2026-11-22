@@ -25,7 +25,7 @@ Tandem has two parts:
 | **Browser extension** (`extension/`) | Watches your video player, syncs it, shows the chat and the call | **Everyone** in the party |
 | **Relay server** (`server/`) | A tiny server that passes messages between you. No video goes through it | **One person** (the "host") runs it |
 
-The extension isn't on the Chrome Web Store. The host builds a **zip** of the extension that points to their server, sends it to friends, and everyone installs it with *Load unpacked*.
+The extension isn't on the Chrome Web Store. Everyone installs it from a **zip** with *Load unpacked*, and points it at the host's server, either built into the zip by the host, or typed into the popup's **⚙ Server settings**. The host can lock the server with a **party key**, so only friends who know it can use it.
 
 ```
  You (extension) ──┐                         ┌── Friend (extension)
@@ -38,6 +38,8 @@ The extension isn't on the Chrome Web Store. The host builds a **zip** of the ex
 ## Setup
 
 The host does steps 1–4 once. Everyone does step 5.
+
+> **Just joining a friend's party?** Skip to [Step 5](#step-5-install-the-extension-everyone). Use the zip your host sent you, or download `tandem-vX.Y.Z.zip` from this repo's [Releases](https://github.com/Aazhii/Tandem/releases) and enter the server address and party key your host gives you in **⚙ Server settings**.
 
 ### Step 1: Get the code (host)
 
@@ -66,7 +68,7 @@ Your computer runs the server, and [ngrok](https://ngrok.com) gives it a public 
      ngrok config add-authtoken <your-token>
      ```
      The token must come from the **same account** as the domain.
-3. Put your domain in `extension/config.js` (see [Step 3](#step-3-point-the-extension-at-your-server-host)).
+3. Put your domain in `extension/config.local.js` (see [Step 3](#step-3-point-the-extension-at-your-server-host)).
 4. Start everything:
    ```bash
    ./scripts/start-server.sh
@@ -87,12 +89,24 @@ Render's free tier sleeps after ~15 minutes idle, so the first connection after 
 
 ### Step 3: Point the extension at your server (host)
 
-Open **`extension/config.js`** and set `SERVER_URL` to your server's address, starting with **`wss://`**:
+Create **`extension/config.local.js`** with your server's address, starting with **`wss://`**. This file is yours only: git ignores it, so your address never ends up in the public repo.
 
 ```js
 const SERVER_URL = 'wss://something-random.ngrok-free.dev';   // Option A
 // const SERVER_URL = 'wss://your-app.onrender.com';          // Option B
+const PARTY_KEY = '';
+const ICE_SERVERS = [{ urls: ['stun:stun.l.google.com:19302'] }];
 ```
+
+**Lock your server with a party key (recommended).** Without one, anyone who finds your server address can use it, including your TURN relay allowance. Run:
+
+```bash
+./scripts/new-party-key.sh
+```
+
+It generates a random key and saves it in `server/.env` (the server then refuses anyone without it) and in `config.local.js` (so your zip includes it). Restart the server afterwards. On Render or other hosts, set a `PARTY_KEY` environment variable instead. Run the script again any time to change the key.
+
+> Skip `config.local.js` entirely if you'd rather not build a zip: everyone can install the plain zip and enter the address and key in the popup → **⚙ Server settings** (**Copy for a friend** there copies both, ready to send).
 
 Just testing on one computer? Use `'ws://localhost:8080'` and run `cd server && npm install && npm start`.
 
@@ -102,9 +116,9 @@ Just testing on one computer? Use `'ws://localhost:8080'` and run `cd server && 
 ./scripts/package-extension.sh
 ```
 
-This creates **`dist/watch-party-vX.Y.Z.zip`** and prints the server address baked into it, so you can double-check it. Send this zip to your friends (WhatsApp, Drive, email…). Keep a copy for yourself too.
+This creates **`dist/tandem-vX.Y.Z.zip`** with your server address and party key built in, and prints the address so you can double-check it. Send this zip to your friends (WhatsApp, Drive, email…), and only to them, since it contains your key. Keep a copy for yourself too.
 
-> No bash (Windows)? Zip the `extension` folder yourself (right-click → *Send to → Compressed folder*). It's the same thing.
+> No bash (Windows)? Zip the `extension` folder yourself (right-click → *Send to → Compressed folder*). Then everyone enters the server in **⚙ Server settings**.
 
 ### Step 5: Install the extension (everyone)
 
@@ -112,7 +126,8 @@ This creates **`dist/watch-party-vX.Y.Z.zip`** and prints the server address bak
 2. Open **`chrome://extensions`** (Edge: `edge://extensions`, Brave: `brave://extensions`).
 3. Turn on **Developer mode** (switch in the top-right corner).
 4. Click **Load unpacked** and choose the unzipped folder, the one that contains `manifest.json`.
-5. Click the puzzle-piece icon in the toolbar and **pin** the extension. It's called **Watch Party** in Chrome.
+5. Click the puzzle-piece icon in the toolbar and **pin** **Tandem**.
+6. If the popup opens **⚙ Server settings**, enter the server address (and party key) your host gave you and click **Save**. Zips built by the host already have this filled in.
 
 > On startup Chrome may warn about "developer mode extensions". Click ✕ or *Keep*. That's normal for extensions installed this way.
 
@@ -139,6 +154,7 @@ This creates **`dist/watch-party-vX.Y.Z.zip`** and prints the server address bak
 | Only the host controls playback | Popup → **Only host controls playback** |
 | Stop auto-following the host to other videos | Popup → turn off **Auto-follow video changes** |
 | Change your name / avatar | Popup → **Edit my name** |
+| Use a different server / party key | Popup → **⚙ Server settings** (bottom of the popup) |
 
 **Use headphones during calls.** Otherwise the movie's sound from your speakers goes into your mic.
 
@@ -175,7 +191,9 @@ If people in a party run different versions, the chat shows a warning. When the 
 
 | Problem | Fix |
 |---|---|
-| "Could not reach the party server" | Is the host's server running? Is `SERVER_URL` in `config.js` correct and starting with `wss://`? On Render, wait a minute for it to wake up. |
+| "Could not reach the party server" | Is the host's server running? Is the address in **⚙ Server settings** right (starting with `wss://`)? On Render, wait a minute for it to wake up. |
+| "The party server rejected your party key" | Ask the host for the current key and enter it in **⚙ Server settings**. |
+| "No party server set yet" | Enter the host's server address in **⚙ Server settings**. |
 | `ERR_NGROK_320` when starting | Your ngrok domain belongs to a different ngrok account than your authtoken. Run `ngrok config add-authtoken` with the token from the account that owns the domain. |
 | "Port 8080 is already in use" | Another program uses that port. `start-server.sh` replaces an old Tandem server automatically. Otherwise run with `PORT=8081 ./scripts/start-server.sh`. |
 | Nothing syncs | Refresh the video tab after installing or updating. Make sure everyone has the same episode open. |
@@ -192,6 +210,10 @@ If people in a party run different versions, the chat shows a warning. When the 
 cd server && npm install && npm test     # server protocol tests
 ```
 
-To try it on one machine: set `SERVER_URL` to `ws://localhost:8080`, run `npm start` in `server/`, and load the `extension/` folder unpacked in two Chrome profiles.
+To try it on one machine: run `npm start` in `server/`, load the `extension/` folder unpacked in two Chrome profiles, and set the server to `ws://localhost:8080` in **⚙ Server settings**. Tests also run automatically on GitHub for every push.
 
 **Privacy:** the server keeps rooms in memory only (nothing is stored on disk) and never sees your video, camera or microphone. Call media goes directly between participants, or through the TURN relay you configure.
+
+## License
+
+[MIT](LICENSE): free to use, change and share.

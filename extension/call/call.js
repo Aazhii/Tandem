@@ -2,7 +2,7 @@
 /* global ICE_SERVERS */
 
 /**
- * Watch Party video call (WebRTC mesh).
+ * Tandem video call (WebRTC mesh).
  *
  * Runs as an extension page, either inside the chat overlay (iframe) or in its own popup window.
  * - Media flows peer-to-peer; the relay server only forwards offers/answers/ICE candidates.

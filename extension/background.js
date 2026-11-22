@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Watch Party background service worker.
+ * Tandem background service worker.
  *
  * Owns the single WebSocket connection to the relay server and routes messages between
  * the server, the popup, and the party tab's content scripts.
@@ -11,7 +11,7 @@
  * ones back to local time, so content scripts only ever deal with their own Date.now().
  */
 
-importScripts('config.js'); /* global SERVER_URL */
+importScripts('config.js'); /* global SERVER_URL, PARTY_KEY */
 /* Also handles: emoji reactions, typing indicator, avatars, invite links, follow-the-host navigation,
    and the WebRTC video call (call/call.html talks to us over a long-lived port named "call"). */
 
@@ -61,6 +61,16 @@ let lastError = null;
 
 let socket = null;
 let wantConnection = false;
+
+// Party server: the popup's "Server settings" win over the defaults baked into config.js.
+let serverUrl = typeof SERVER_URL === 'string' ? SERVER_URL.trim() : '';
+let partyKey = typeof PARTY_KEY === 'string' ? PARTY_KEY.trim() : '';
+const KEY_REJECTED = 4401; // close code the server uses for a missing/wrong party key
+
+function serverSocketUrl() {
+  if (!partyKey) return serverUrl;
+  return `${serverUrl}${serverUrl.includes('?') ? '&' : '?'}key=${encodeURIComponent(partyKey)}`;
+}
 let pingTimer = null;
 let reconnectTimer = null;
 let backoffMs = BACKOFF_MIN_MS;
@@ -94,8 +104,10 @@ const ready = (async () => {
     const { wp, wpLog } = await chrome.storage.session.get(['wp', 'wpLog']);
     if (wp) Object.assign(session, wp);
     if (Array.isArray(wpLog)) chatLog = wpLog;
-    const { autoFollow } = await chrome.storage.local.get('autoFollow');
+    const { autoFollow, server } = await chrome.storage.local.get(['autoFollow', 'server']);
     if (typeof autoFollow === 'boolean') session.autoFollow = autoFollow;
+    if (server && typeof server.url === 'string' && server.url.trim()) serverUrl = server.url.trim();
+    if (server && typeof server.key === 'string' && server.url && server.url.trim()) partyKey = server.key.trim();
   } catch (err) {
     console.warn('[WatchParty] could not restore session', err);
   }
@@ -189,7 +201,8 @@ function viewState() {
     tabId: session.tabId,
     warning,
     lastError,
-    serverUrl: SERVER_URL,
+    serverUrl,
+    hasPartyKey: !!partyKey,
     version: VERSION,
   };
 }
@@ -303,13 +316,24 @@ function connect() {
   reconnectTimer = null;
   setStatus(session.roomId ? 'reconnecting' : 'connecting');
 
+  if (!serverUrl) {
+    const msg = 'No party server set yet. Open "Server settings" in this popup and enter the address your host gave you.';
+    if (!failPending(msg)) lastError = msg;
+    wantConnection = false;
+    setStatus('idle');
+    notifyPopup();
+    return;
+  }
+
   let sock;
   try {
-    sock = new WebSocket(SERVER_URL);
+    sock = new WebSocket(serverSocketUrl());
   } catch (err) {
-    lastError = `Invalid SERVER_URL in config.js: ${SERVER_URL}`;
+    const msg = `"${serverUrl}" is not a valid server address. It should look like wss://your-server.example.com`;
+    if (!failPending(msg)) lastError = msg;
+    wantConnection = false;
+    setStatus('idle');
     notifyPopup();
-    scheduleReconnect();
     return;
   }
   socket = sock;
@@ -334,10 +358,21 @@ function connect() {
     if (msg && typeof msg.type === 'string') handleServerMessage(msg);
   };
 
-  sock.onclose = () => {
+  sock.onclose = (ev) => {
     if (socket !== sock) return;
     socket = null;
     stopPing();
+    if (ev && ev.code === KEY_REJECTED) {
+      // Retrying with the same key can't work: stop and tell the user what to fix.
+      const msg = partyKey
+        ? 'The party server rejected your party key. Check it in "Server settings" (ask the host for the right one).'
+        : 'This party server needs a party key. Ask the host for it and enter it in "Server settings".';
+      if (!failPending(msg)) lastError = msg;
+      wantConnection = false;
+      setStatus('idle');
+      notifyPopup();
+      return;
+    }
     if (wantConnection) {
       setStatus('reconnecting');
       scheduleReconnect();
@@ -462,7 +497,7 @@ function onJoined(msg, created) {
 
 // Oldest server this extension works with. Raise it only when the server protocol changes
 // (so extension-only updates don't ask the host to restart the server).
-const MIN_SERVER_VERSION = '1.3.0';
+const MIN_SERVER_VERSION = '1.5.0';
 
 /** The server must support everything this extension uses, or newer features silently fail. */
 function checkServerVersion(serverVersion) {
@@ -694,7 +729,7 @@ function startRequest(kind, { nickname, avatar, tabId, roomId }) {
       : { type: 'join_room', roomId, nickname, avatar: session.avatar, version: VERSION };
     const req = { kind, message, resolve, tabId, timer: null };
     req.timer = setTimeout(() => {
-      if (pending === req) failPending(`Could not reach the party server (${SERVER_URL}). Is it running?`);
+      if (pending === req) failPending(`Could not reach the party server (${serverUrl}). Is it running, and is the address right?`);
     }, REQUEST_TIMEOUT_MS);
     pending = req;
     wantConnection = true;
@@ -1117,6 +1152,40 @@ async function handlePopupMessage(msg) {
     case 'popup_use_tab':
       await moveToTab(msg.tabId);
       return { ok: true };
+    case 'popup_get_server':
+      return {
+        url: serverUrl,
+        key: partyKey,
+        defaultUrl: typeof SERVER_URL === 'string' ? SERVER_URL.trim() : '',
+      };
+    case 'popup_save_server': {
+      let url = String(msg.url || '').trim();
+      const key = String(msg.key || '').trim().slice(0, 200);
+      if (url && !/^wss?:\/\//i.test(url)) {
+        if (/^https?:\/\//i.test(url)) url = url.replace(/^http/i, 'ws');
+        else url = `wss://${url}`;
+      }
+      url = url.replace(/\/+$/, '');
+      if (url) {
+        try { new URL(url); } catch { return { ok: false, error: 'That does not look like a server address.' }; }
+      }
+      const changed = url !== serverUrl || key !== partyKey;
+      await chrome.storage.local.set({ server: { url, key } });
+      serverUrl = url || (typeof SERVER_URL === 'string' ? SERVER_URL.trim() : '');
+      partyKey = url ? key : (typeof PARTY_KEY === 'string' ? PARTY_KEY.trim() : '');
+      lastError = null;
+      if (changed) {
+        closeSocket();
+        if (session.roomId) {
+          wantConnection = true;
+          connect();
+        } else {
+          setStatus('idle');
+        }
+      }
+      notifyPopup();
+      return { ok: true, url: serverUrl };
+    }
     case 'popup_clear_error':
       lastError = null;
       return { ok: true };

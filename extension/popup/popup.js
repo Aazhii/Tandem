@@ -1,6 +1,6 @@
 'use strict';
 
-/** Watch Party popup. All state lives in the background worker; this only renders it. */
+/** Tandem popup. All state lives in the background worker; this only renders it. */
 
 const $ = (id) => document.getElementById(id);
 const ROOM_CODE_RE = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/;
@@ -53,9 +53,9 @@ function buildInvite(code, url) {
     } catch { /* ignore */ }
   }
   return [
-    '🎬 Join my Watch Party!',
-    link ? `Open this link (with the Watch Party extension installed): ${link}` : 'Open the same video as me.',
-    `Or click the Watch Party icon → enter code ${code} → Join`,
+    '🎬 Join my Tandem watch party!',
+    link ? `Open this link (with the Tandem extension installed): ${link}` : 'Open the same video as me.',
+    `Or click the Tandem icon → enter code ${code} → Join`,
   ].join('\n');
 }
 
@@ -138,8 +138,8 @@ function render(s) {
   $('status').dataset.status = status;
   $('status-text').textContent = STATUS_TEXT[status] || status;
   $('version').textContent = s.version || '';
-  $('server').textContent = s.serverUrl || '';
-  $('server').title = `Server: ${s.serverUrl || ''}`;
+  $('server').title = s.serverUrl ? `Server: ${s.serverUrl}${s.hasPartyKey ? ' (with party key)' : ''}` : 'No server set';
+  if (!s.serverUrl && $('server-form').hidden) openServerSettings('Enter the party server address first. Whoever runs the server can give it to you.');
 
   $('warning').textContent = s.warning || '';
   $('warning').hidden = !s.warning;
@@ -353,6 +353,60 @@ $('nickname').addEventListener('change', () => {
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg && msg.cmd === 'state_changed' && msg.state) render(msg.state);
+});
+
+// ---------------------------------------------------------------------------
+// Server settings
+// ---------------------------------------------------------------------------
+
+async function openServerSettings(intro) {
+  const cfg = await bg('popup_get_server');
+  $('server-url').value = (cfg && cfg.url) || '';
+  $('server-key').value = (cfg && cfg.key) || '';
+  $('server-key').type = 'password';
+  $('server-key-show').textContent = 'Show';
+  $('server-msg').textContent = '';
+  if (intro) $('server-intro').textContent = intro;
+  $('server-form').hidden = false;
+  $('server-url').focus();
+}
+
+$('server').addEventListener('click', () => {
+  if ($('server-form').hidden) openServerSettings();
+  else $('server-form').hidden = true;
+});
+$('server-close').addEventListener('click', () => { $('server-form').hidden = true; });
+$('server-key-show').addEventListener('click', () => {
+  const k = $('server-key');
+  k.type = k.type === 'password' ? 'text' : 'password';
+  $('server-key-show').textContent = k.type === 'password' ? 'Show' : 'Hide';
+});
+$('server-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const res = await bg('popup_save_server', { url: $('server-url').value, key: $('server-key').value });
+  if (!res || !res.ok) {
+    $('server-msg').textContent = (res && res.error) || 'Could not save.';
+    return;
+  }
+  $('server-url').value = res.url || '';
+  $('server-msg').textContent = res.url ? 'Saved ✓' : 'Saved. Using the built-in server again.';
+  setTimeout(() => { if ($('server-msg').textContent.startsWith('Saved')) $('server-form').hidden = true; }, 900);
+  refresh();
+});
+$('server-share').addEventListener('click', async () => {
+  const url = $('server-url').value.trim();
+  if (!url) {
+    $('server-msg').textContent = 'Enter the server address first.';
+    return;
+  }
+  const key = $('server-key').value.trim();
+  const text = `Tandem server settings\nServer address: ${url}${key ? `\nParty key: ${key}` : ''}\n(Tandem icon → ⚙ Server settings → paste these → Save)`;
+  try {
+    await navigator.clipboard.writeText(text);
+    $('server-msg').textContent = 'Copied. Send it only to friends you watch with.';
+  } catch {
+    $('server-msg').textContent = 'Could not copy.';
+  }
 });
 
 (async () => {

@@ -1,0 +1,27 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Server protocol tests
+        working-directory: server
+        run: |
+          npm ci
+          npm test
+      - name: Extension scripts parse
+        run: for f in extension/*.js extension/*/*.js extension/*/*/*.js; do node --check "$f"; done
+      - name: Manifest is valid JSON
+        run: node -e "JSON.parse(require('fs').readFileSync('extension/manifest.json','utf8'))"
+      - name: Package the extension
+        run: ./scripts/package-extension.sh

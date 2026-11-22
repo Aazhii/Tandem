@@ -127,19 +127,19 @@
     const fx = el('div', 'wp-fx');
 
     const wrap = el('div', 'wp');
-    const tab = button('wp-tab', null, 'Toggle Watch Party chat');
+    const tab = button('wp-tab', null, 'Toggle Tandem chat');
     const tabIcon = el('span', 'wp-tab-icon', '💬');
     const badge = el('span', 'wp-badge');
     badge.hidden = true;
     tab.append(tabIcon, badge);
 
     const panel = el('aside', 'wp-panel');
-    panel.setAttribute('aria-label', 'Watch Party chat');
+    panel.setAttribute('aria-label', 'Tandem chat');
 
     // Header
     const header = el('header', 'wp-header');
     const titleBox = el('div', 'wp-title-box');
-    const title = el('div', 'wp-title', 'Watch Party');
+    const title = el('div', 'wp-title', 'Tandem');
     const sub = el('div', 'wp-sub');
     titleBox.append(title, sub);
     const callBtn = button('wp-icon-btn wp-call-btn', '📹', 'Video call');
@@ -396,35 +396,79 @@ html[data-wp-pagefs] [data-wp-fs-target] {
     if (!keepAttr) node.removeAttribute('popover');
   }
 
-  /** Called when the site asks to make `target` (player div / iframe / video) fullscreen. */
+  // data-wp-fs-active on <html> tells fs-hook.js (page world) that the takeover is active, so the
+  // player sees its own element as document.fullscreenElement. Players inside an iframe get the
+  // same state through a message to their frame.
+  const FS_NS = 'watch-party-fs';
+  let pageFsEnteredAt = 0;
+
+  function setFsFlag(value) {
+    const de = document.documentElement;
+    if (value) de.setAttribute('data-wp-fs-active', value);
+    else de.removeAttribute('data-wp-fs-active');
+  }
+
+  function tellFrame(target, on) {
+    if (!target || target.tagName !== 'IFRAME') return;
+    try { target.contentWindow.postMessage({ ns: FS_NS, cmd: 'state', on }, '*'); } catch { /* gone */ }
+  }
+
+  /**
+   * Called when the site asks to make `target` (player div / iframe / video) fullscreen.
+   * Not a toggle: players often request fullscreen twice, and a second request must not exit.
+   */
   async function togglePageFullscreen(target) {
     if (!hostEl || !target || !target.isConnected) return false;
     const de = document.documentElement;
     if (pageFs && document.fullscreenElement === de) {
-      // The player's fullscreen button works as a toggle.
-      try { await document.exitFullscreen(); } catch { /* ignore */ }
+      setFsFlag('on');
+      tellFrame(pageFs.target, true);
       return true;
     }
+    if (!pageFs || pageFs.target !== target) setFsFlag('pending');
     try {
       if (document.fullscreenElement !== de) await de.requestFullscreen({ navigationUI: 'hide' });
     } catch (err) {
+      setFsFlag(null);
+      tellFrame(target, false);
       WP.overlay.addSystem('Chrome blocked fullscreen. Click the fullscreen button once more.');
+      return false;
+    }
+    if (document.fullscreenElement !== de || !target.isConnected) {
+      // Left again before we finished (Esc pressed straight away, or the player went away).
+      setFsFlag(null);
+      tellFrame(target, false);
       return false;
     }
     ensurePageStyle();
     unfitAll();
     pageFs = { target, hadPopover: target.hasAttribute('popover') };
+    pageFsEnteredAt = Date.now();
     de.setAttribute('data-wp-pagefs', '');
     target.setAttribute('data-wp-fs-target', '');
+    setFsFlag('on');
     // Top layer: escapes any site container/transform, then the chat goes above it.
     raiseToTopLayer(target);
     raiseToTopLayer(hostEl);
+    tellFrame(target, true);
     window.dispatchEvent(new Event('resize'));
     relayoutSoon();
     return true;
   }
 
+  /** The player's own "exit fullscreen" (button click). Programmatic exits are filtered by the caller. */
+  function requestExitPageFullscreen() {
+    if (!pageFs) {
+      setFsFlag(null);
+      return;
+    }
+    if (Date.now() - pageFsEnteredAt < 250) return; // a player "resetting" in the same moment we entered
+    if (document.fullscreenElement === document.documentElement) document.exitFullscreen().catch(() => {});
+    else exitPageFullscreen();
+  }
+
   function exitPageFullscreen() {
+    setFsFlag(null);
     if (!pageFs) return;
     const { target, hadPopover } = pageFs;
     pageFs = null;
@@ -432,6 +476,7 @@ html[data-wp-pagefs] [data-wp-fs-target] {
     if (target) {
       target.removeAttribute('data-wp-fs-target');
       lowerFromTopLayer(target, hadPopover);
+      tellFrame(target, false);
     }
     if (hostEl) lowerFromTopLayer(hostEl, false);
     window.dispatchEvent(new Event('resize'));
@@ -588,7 +633,7 @@ html[data-wp-pagefs] [data-wp-fs-target] {
     iframe.className = 'wp-call-frame';
     iframe.src = chrome.runtime.getURL('call/call.html');
     iframe.setAttribute('allow', 'camera *; microphone *; autoplay *');
-    iframe.title = 'Watch Party video call';
+    iframe.title = 'Tandem video call';
     const resize = el('div', 'wp-callresize');
     resize.title = 'Resize';
     const dockResize = el('div', 'wp-dockresize');
@@ -787,6 +832,7 @@ html[data-wp-pagefs] [data-wp-fs-target] {
     },
 
     togglePageFullscreen,
+    requestExitPageFullscreen,
 
     unmount() {
       if (!hostEl) return;
@@ -946,7 +992,7 @@ html[data-wp-pagefs] [data-wp-fs-target] {
       const head = el('div', 'wp-invite-head');
       head.append(el('span', 'wp-invite-icon', '🎬'));
       const t = el('div', 'wp-invite-title');
-      t.append(el('div', 'wp-title', 'Watch Party'), el('div', 'wp-sub', `You're invited to party ${roomId}`));
+      t.append(el('div', 'wp-title', 'Tandem'), el('div', 'wp-sub', `You're invited to party ${roomId}`));
       head.append(t);
       const x = button('wp-icon-btn', '✕', 'Dismiss');
       head.append(x);

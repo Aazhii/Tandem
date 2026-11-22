@@ -1,4 +1,4 @@
-/* Watch Party chat overlay — loaded into a Shadow DOM, isolated from the host page. */
+/* Tandem chat overlay — loaded into a Shadow DOM, isolated from the host page. */
 
 :host {
   all: initial;

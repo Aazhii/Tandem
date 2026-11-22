@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Watch Party content script (runs in every frame).
+ * Tandem content script (runs in every frame).
  *
  * - Finds the main <video> (largest visible one), re-scanning on DOM mutations (SPAs swap players).
  * - Hooks play / pause / seeked / ratechange (+ waiting / playing for buffering) and reports them.
@@ -533,6 +533,21 @@
 
   const FS_NS = 'watch-party-fs';
 
+  let frameFsTimer = null;
+
+  function setFrameFsFlag(value) {
+    const de = document.documentElement;
+    if (value) de.setAttribute('data-wp-fs-active', value);
+    else de.removeAttribute('data-wp-fs-active');
+  }
+
+  /** Lets a player inside an iframe know its (pretend) fullscreen state changed. */
+  function announceFrameFs() {
+    for (const type of ['fullscreenchange', 'webkitfullscreenchange']) {
+      document.dispatchEvent(new Event(type, { bubbles: true }));
+    }
+  }
+
   function onFullscreenRequest(e) {
     if (!party.inRoom) return;
     if (IS_TOP) {
@@ -542,8 +557,47 @@
     } else {
       // A player inside an iframe: the top page fullscreens itself and enlarges this iframe.
       e.preventDefault();
+      setFrameFsFlag('pending');
+      clearTimeout(frameFsTimer);
+      frameFsTimer = setTimeout(() => { // no answer from the top page
+        if (document.documentElement.getAttribute('data-wp-fs-active') === 'pending') {
+          setFrameFsFlag(null);
+          announceFrameFs();
+        }
+      }, 3000);
       try { window.top.postMessage({ ns: FS_NS, cmd: 'fullscreen' }, '*'); } catch { /* detached */ }
     }
+  }
+
+  /**
+   * The player called exitFullscreen() while it is shown fullscreen beside the chat. Only a real
+   * click/key press counts: players also call it on their own right after entering (when they
+   * think something is off), which used to throw the page straight back out of fullscreen.
+   */
+  function onExitFullscreenRequest(e) {
+    e.preventDefault();
+    const ua = navigator.userActivation;
+    const byUser = !ua || ua.isActive;
+    if (!byUser) {
+      debug('ignored exitFullscreen() without a click');
+      return;
+    }
+    if (IS_TOP) {
+      if (WP.overlay) WP.overlay.requestExitPageFullscreen();
+      else document.documentElement.removeAttribute('data-wp-fs-active');
+    } else {
+      try { window.top.postMessage({ ns: FS_NS, cmd: 'exit' }, '*'); } catch { /* detached */ }
+    }
+  }
+
+  /** Iframe: the top page reports whether this frame's player is now shown fullscreen. */
+  function onTopFsState(e) {
+    const d = e.data;
+    if (!d || d.ns !== FS_NS || d.cmd !== 'state' || e.source !== window.top) return;
+    clearTimeout(frameFsTimer);
+    const was = document.documentElement.getAttribute('data-wp-fs-active');
+    setFrameFsFlag(d.on ? 'on' : null);
+    if ((was === 'on') !== !!d.on) announceFrameFs();
   }
 
   /** Top frame: which <iframe> in this document contains the window that sent a message. */
@@ -566,15 +620,19 @@
 
   function onFrameMessage(e) {
     const d = e.data;
-    if (!d || d.ns !== FS_NS || d.cmd !== 'fullscreen' || !party.inRoom || !WP.overlay || !WP.overlay.isMounted()) return;
+    if (!d || d.ns !== FS_NS || !party.inRoom || !WP.overlay || !WP.overlay.isMounted()) return;
     const frame = e.source && e.source !== window ? iframeFor(e.source) : null;
-    if (frame) WP.overlay.togglePageFullscreen(frame);
+    if (!frame) return;
+    if (d.cmd === 'fullscreen') WP.overlay.togglePageFullscreen(frame);
+    else if (d.cmd === 'exit') WP.overlay.requestExitPageFullscreen();
   }
 
   function startPartyMode() {
     document.documentElement.setAttribute('data-wp-party', '');
     document.addEventListener('watchparty:fullscreen', onFullscreenRequest, true);
+    document.addEventListener('watchparty:exitfullscreen', onExitFullscreenRequest, true);
     if (IS_TOP) window.addEventListener('message', onFrameMessage);
+    else window.addEventListener('message', onTopFsState);
     observer = new MutationObserver(queueRescan);
     observer.observe(document.documentElement, { childList: true, subtree: true });
     tickTimer = setInterval(tick, TICK_MS);
@@ -602,7 +660,14 @@
   function stopPartyMode() {
     document.documentElement.removeAttribute('data-wp-party');
     document.removeEventListener('watchparty:fullscreen', onFullscreenRequest, true);
+    document.removeEventListener('watchparty:exitfullscreen', onExitFullscreenRequest, true);
     window.removeEventListener('message', onFrameMessage);
+    window.removeEventListener('message', onTopFsState);
+    clearTimeout(frameFsTimer);
+    if (document.documentElement.hasAttribute('data-wp-fs-active')) {
+      document.documentElement.removeAttribute('data-wp-fs-active');
+      if (!IS_TOP) announceFrameFs();
+    }
     if (observer) observer.disconnect();
     observer = null;
     clearInterval(tickTimer);

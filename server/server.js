@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Watch Party relay server.
+ * Tandem relay server.
  *
  * Keeps rooms in memory and relays play/pause/seek/rate, host heartbeats, chat, reactions and
  * WebRTC call signaling between members. No video or audio ever passes through here: the movie is
@@ -51,6 +51,9 @@ const CONFIG = {
   maxNicknameLength: 24,
   maxChatLength: 500,
   maxUrlLength: 2048,
+  // Optional shared secret. When set, only clients that know it can connect (and get the TURN
+  // relay login). Friends enter it in the extension popup → Server settings.
+  partyKey: (process.env.PARTY_KEY || '').trim(),
 };
 
 const SERVER_VERSION = require('./package.json').version;
@@ -724,6 +727,18 @@ function handleMessage(ws, raw, isBinary) {
 // HTTP + WebSocket server
 // ---------------------------------------------------------------------------
 
+/** Checks ?key=… on the WebSocket URL against CONFIG.partyKey (constant-time). */
+function keyAccepted(req) {
+  if (!CONFIG.partyKey) return true;
+  let given = '';
+  try {
+    given = new URL(req.url || '/', 'http://x').searchParams.get('key') || '';
+  } catch { /* bad url */ }
+  const a = crypto.createHash('sha256').update(given).digest();
+  const b = crypto.createHash('sha256').update(CONFIG.partyKey).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
 function createServer() {
   const server = http.createServer((req, res) => {
     const path = (req.url || '/').split('?')[0];
@@ -734,7 +749,7 @@ function createServer() {
     }
     if (path === '/') {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
-      res.end(`Watch Party relay server v${SERVER_VERSION}. ${rooms.size} active room(s).`);
+      res.end(`Tandem relay server v${SERVER_VERSION}.`);
       return;
     }
     res.writeHead(404, { 'Content-Type': 'text/plain' });
@@ -743,7 +758,11 @@ function createServer() {
 
   const wss = new WebSocketServer({ server, maxPayload: 64 * 1024 });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req) => {
+    if (!keyAccepted(req)) {
+      ws.close(4401, 'party key required');
+      return;
+    }
     ws.ctx = { roomId: null, clientId: null, msgTimes: [], alive: true };
     ws.on('pong', () => { ws.ctx.alive = true; });
     ws.on('message', (raw, isBinary) => {
@@ -796,7 +815,10 @@ function createServer() {
 if (require.main === module) {
   const { server } = createServer();
   server.listen(CONFIG.port, () => {
-    log(`Watch Party server v${SERVER_VERSION} listening on :${CONFIG.port}`);
+    log(`Tandem server v${SERVER_VERSION} listening on :${CONFIG.port}`);
+    log(CONFIG.partyKey
+      ? 'party key: required ✓ (only people with the key can join)'
+      : 'party key: NOT set, so anyone who knows this address can use it. Add PARTY_KEY=… to server/.env to lock it.');
     const p = turn.provider();
     if (!p) {
       log('video call relay (TURN): NOT configured. Calls may stay on "Connecting…" between different networks. Run ./scripts/setup-turn.sh');
