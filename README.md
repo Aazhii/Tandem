@@ -1,212 +1,197 @@
-# Watch Party
+# Tandem
 
-A free, Teleparty-style browser extension that keeps video playback in sync between friends, plus a tiny relay server.
+**Watch videos together with friends, in sync, from your own browsers.** A free, self-hosted alternative to Teleparty.
 
-**No video is ever streamed or shared.** Every participant plays the video in their own browser, on their own account. The extension syncs **play / pause / seek / speed** and adds a social layer on top:
+When one person plays, pauses or skips, everyone else's video does the same. On top of that you get:
 
-- 💬 **Chat sidebar** with avatars, typing indicator ("Alice is typing…") and an emoji picker
-- 😂 **Emoji reactions** that float up over the video for everyone (also in fullscreen)
-- 📹 **Video + voice call**: you only see your friends' faces, never your own, so the small screen goes to them. Docks into the chat sidebar or floats anywhere over the video (drag + resize). Mic/camera toggles, call volume, and you can pop it out into its own window
-- 🔗 **Invite links**: friends open the link and get a "Join party" card on the page
-- ➡️ **Follow the host**: when the host switches video or episode, friends get a "Go there" button
-- 👑 **Host-only mode**, automatic reconnects, late-join catch-up, drift correction
+- 💬 **Chat** in a sidebar next to the video (it never covers the movie)
+- 😂 **Emoji reactions** that float over the video for everyone
+- 📹 **Video & voice call** inside the sidebar: see your friends' faces while you watch, optionally your own too
+- ➡️ **Auto-follow**: when someone opens the next episode, everyone goes there
+- 🔗 **Invite links**, host-only control, fullscreen with chat, automatic reconnects
 
-- Works in **Chrome, Edge, Brave** (Manifest V3, Chromium 116+).
-- Works on any site with an HTML5 `<video>`: YouTube, Prime Video, Disney+/Hotstar, Crunchyroll, …, with special handling for **Netflix** and **YouTube**.
-- Shared with friends as a **zip folder** and loaded via *Load unpacked* (no Web Store).
-- The relay server runs locally or on a free host (Render / Railway / Fly.io).
+Works in **Chrome, Edge and Brave** on Netflix, YouTube, Prime Video, Hotstar, Crunchyroll and any site with a normal HTML5 video player.
 
-> ⚠️ Each person needs their **own subscription/account** for the streaming service you're watching. Watch Party doesn't share accounts, bypass DRM, or capture any video/audio.
+> **Each person needs their own account** on the streaming site. Tandem never streams or shares video. It only sends small "play / pause / jump to 12:34" messages between you.
 
 ---
 
-## Repo layout
+## How it works
+
+Tandem has two parts:
+
+| Part | What it does | Who needs it |
+|---|---|---|
+| **Browser extension** (`extension/`) | Watches your video player, syncs it, shows the chat and the call | **Everyone** in the party |
+| **Relay server** (`server/`) | A tiny server that passes messages between you. No video goes through it | **One person** (the "host") runs it |
+
+The extension isn't on the Chrome Web Store. The host builds a **zip** of the extension that points to their server, sends it to friends, and everyone installs it with *Load unpacked*.
 
 ```
-├── extension/                 # the browser extension (load this folder unpacked)
-│   ├── manifest.json
-│   ├── config.js              # SERVER_URL — edit before zipping
-│   ├── background.js          # service worker: owns the WebSocket, routes messages
-│   ├── content/
-│   │   ├── content.js         # finds the video, hooks events, applies remote commands, drift correction
-│   │   ├── overlay.js         # chat sidebar (Shadow DOM)
-│   │   ├── overlay.css
-│   │   ├── page-bridge.js     # injected into the page MAIN world (Netflix player API)
-│   │   └── adapters/          # generic.js, youtube.js, netflix.js
-│   ├── call/                  # video call UI (call.html/js/css) + one-time permission page
-│   ├── popup/                 # popup.html / popup.js / popup.css
-│   └── icons/
-├── server/
-│   ├── server.js              # Node + ws, in-memory rooms
-│   ├── test/protocol.test.js  # automated protocol tests (npm test)
-│   ├── package.json
-│   └── Dockerfile
-├── scripts/
-│   ├── start-server.sh        # run the server on this Mac + expose it via ngrok
-│   ├── package-extension.sh   # zips extension/ → dist/watch-party-vX.Y.Z.zip
-│   └── generate-icons.js      # regenerates the placeholder icons (no deps)
-├── render.yaml                # optional Render Blueprint for one-click deploy
-└── README.md
+ You (extension) ──┐                         ┌── Friend (extension)
+                   └──►  relay server (host)  ◄─┘
+            each of you plays the video from your own account
 ```
 
 ---
 
-## 1. Run the server locally and test with two Chrome profiles
+## Setup
 
-Requires **Node 20+**.
+The host does steps 1–4 once. Everyone does step 5.
+
+### Step 1: Get the code (host)
 
 ```bash
-cd server
-npm install
-npm start          # → "Watch Party server listening on :8080"
+git clone https://github.com/Aazhii/Tandem.git
+cd Tandem
 ```
 
-Check it: open <http://localhost:8080/health>. It should say `ok`. Run the automated protocol tests with `npm test`.
+No git? On the GitHub page click **Code → Download ZIP** and unzip it.
 
-`extension/config.js` already points to `ws://localhost:8080`, so you can load the extension straight away:
+You need **Node.js 20 or newer** ([nodejs.org](https://nodejs.org)). Check with `node -v`.
 
-1. Open `chrome://extensions`, turn on **Developer mode** (top right), click **Load unpacked**, and select the `extension/` folder.
-2. Create a **second Chrome profile** (profile icon (top right) → *Add*). In that profile, load the extension the same way.
-3. In both profiles, open the **same YouTube video**.
-4. Profile 1: click the Watch Party icon → enter a nickname → **Start a party on this tab** → **Copy invite**.
-5. Profile 2: click the icon → enter the room code → **Join**.
-6. Play, pause, and seek in either window. The other follows within about a second. Chat from the sidebar on the right.
+### Step 2: Run the relay server (host)
 
-> Tip: if a tab was already open before you loaded the extension, that's fine: starting or joining a party injects the scripts into the tab automatically.
+Pick **one** option.
 
----
+#### Option A: on your own computer, with ngrok (free, recommended for small groups)
 
-## 2a. Host the server on your own Mac (ngrok): what this project uses
+Your computer runs the server, and [ngrok](https://ngrok.com) gives it a public address your friends can reach.
 
-`extension/config.js` points at an ngrok address that forwards to the server on the host's Mac. Each time you want to watch:
-
-```bash
-./scripts/start-server.sh
-```
-
-This starts the server, keeps the Mac awake, and opens the ngrok tunnel (the domain is read from `SERVER_URL` in `config.js`). Keep the window open while you watch, and press **Ctrl+C** when done. One-time setup: `brew install ngrok`, claim your free dev domain at dashboard.ngrok.com → Domains, then run `ngrok config add-authtoken <token>` with the token **from the same ngrok account**.
-
-## 2b. Or deploy the server to Render (free)
-
-1. Push this repo to GitHub (or GitLab).
-2. Go to <https://dashboard.render.com> → **New +** → **Web Service** → connect your repo.
-3. Settings:
-   - **Root Directory:** `server`
-   - **Runtime:** Node
-   - **Build Command:** `npm install --omit=dev`
-   - **Start Command:** `node server.js`
-   - **Instance Type:** Free
-   - (Advanced) **Health Check Path:** `/health`
-4. Click **Create Web Service** and wait for the deploy to show *Live*. Your URL looks like `https://watch-party-xyz.onrender.com`.
-5. Open `https://<your-app>.onrender.com/health`. It should say `ok`.
-6. Edit **`extension/config.js`** and use the **`wss://`** version of the URL:
-
-   ```js
-   const SERVER_URL = 'wss://watch-party-xyz.onrender.com';
+1. Install ngrok: `brew install ngrok` (Mac) or download it from [ngrok.com/download](https://ngrok.com/download).
+2. Create a free ngrok account. In the dashboard:
+   - **Domains** → claim your free static domain (looks like `something-random.ngrok-free.dev`).
+   - **Your Authtoken** → copy it, then run once:
+     ```bash
+     ngrok config add-authtoken <your-token>
+     ```
+     The token must come from the **same account** as the domain.
+3. Put your domain in `extension/config.js` (see [Step 3](#step-3-point-the-extension-at-your-server-host)).
+4. Start everything:
+   ```bash
+   ./scripts/start-server.sh
    ```
+   This installs the server's dependencies on first run, starts the server, keeps your computer awake and opens the tunnel. **Leave this window open while you watch.** Press `Ctrl+C` to stop.
 
-7. Reload the extension on `chrome://extensions` (↻ on the card), then package it (next section).
+   Each time you want to watch, run `./scripts/start-server.sh` again.
 
-*Alternative:* **New + → Blueprint** and pick this repo. `render.yaml` sets everything up for you.
+> On Windows, run the scripts in **Git Bash** or **WSL**, or start things by hand: `cd server && npm install && npm start`, then in a second window `ngrok http --url=<your-domain> 8080`.
 
-**Free-tier notes:** Render's free instances sleep after ~15 minutes without traffic, and the first connection after that takes ~30-60s while it wakes up. The extension keeps retrying, so just wait a moment. Rooms are kept in memory, so a restart clears them, but connected clients automatically recreate and rejoin their room.
+#### Option B: on a free cloud host (Render), always on
 
-**Other hosts:** the `server/Dockerfile` works on Railway, Fly.io (`fly launch` inside `server/`), or any Docker host. The server reads `PORT` from the environment.
+1. Fork this repo on GitHub.
+2. On [dashboard.render.com](https://dashboard.render.com): **New + → Blueprint** → pick your fork. The included `render.yaml` sets everything up.
+3. When it shows **Live**, open `https://<your-app>.onrender.com/health`. It should say `ok`.
 
----
+Render's free tier sleeps after ~15 minutes idle, so the first connection after a break can take up to a minute. The extension keeps retrying on its own. The server also runs on Railway, Fly.io or any Docker host (`server/Dockerfile`).
 
-## 3. Package the extension
+### Step 3: Point the extension at your server (host)
+
+Open **`extension/config.js`** and set `SERVER_URL` to your server's address, starting with **`wss://`**:
+
+```js
+const SERVER_URL = 'wss://something-random.ngrok-free.dev';   // Option A
+// const SERVER_URL = 'wss://your-app.onrender.com';          // Option B
+```
+
+Just testing on one computer? Use `'ws://localhost:8080'` and run `cd server && npm install && npm start`.
+
+### Step 4: Build the zip and share it (host)
 
 ```bash
 ./scripts/package-extension.sh
-# → dist/watch-party-v1.0.0.zip
 ```
 
-The script reads the version from `extension/manifest.json` (it does **not** bump it) and warns you if `SERVER_URL` still points at `localhost`. The zip contains a single folder, `watch-party-vX.Y.Z/`, ready to load.
+This creates **`dist/watch-party-vX.Y.Z.zip`** and prints the server address baked into it, so you can double-check it. Send this zip to your friends (WhatsApp, Drive, email…). Keep a copy for yourself too.
 
-When you release a new version, bump `"version"` in `extension/manifest.json` first. The version is sent when joining a room. If friends' versions differ in **major.minor** (e.g. 1.0 vs 1.1), they can still join, but the popup and chat show a *"different version — update the extension folder"* warning.
+> No bash (Windows)? Zip the `extension` folder yourself (right-click → *Send to → Compressed folder*). It's the same thing.
 
----
+### Step 5: Install the extension (everyone)
 
-## 4. Friend install guide
-
-Send your friend the zip from `dist/`, and tell them:
-
-1. **Unzip** it somewhere **permanent** (e.g. `Documents/watch-party`). Don't delete the folder later: the browser loads the extension from it.
+1. **Unzip** the file into a folder you'll keep, e.g. `Documents/tandem`. Chrome loads the extension from this folder, so don't delete it.
 2. Open **`chrome://extensions`** (Edge: `edge://extensions`, Brave: `brave://extensions`).
-3. Turn on **Developer mode** (toggle, top-right; in Edge it's in the left sidebar).
-4. Click **Load unpacked** and select the unzipped `watch-party-vX.Y.Z` folder (the one containing `manifest.json`).
-5. Pin it: puzzle-piece icon → pin **Watch Party**.
-6. Open the same video as the host, click the Watch Party icon, enter the **room code**, click **Join**.
+3. Turn on **Developer mode** (switch in the top-right corner).
+4. Click **Load unpacked** and choose the unzipped folder, the one that contains `manifest.json`.
+5. Click the puzzle-piece icon in the toolbar and **pin** the extension. It's called **Watch Party** in Chrome.
 
-**Updating:** replace the files in that folder with the new zip's contents, then click the **↻ reload** button on the Watch Party card in `chrome://extensions`, and refresh any open video tabs.
-
-> Chrome may show a "Disable developer mode extensions" bubble on startup. Click the ✕ or *Keep*. That's normal for unpacked extensions.
+> On startup Chrome may warn about "developer mode extensions". Click ✕ or *Keep*. That's normal for extensions installed this way.
 
 ---
 
-## 5. Using it
+## Start watching
 
-| | |
+1. Everyone opens **the same video** on the streaming site.
+2. The host clicks the extension icon → enters a nickname → **Start a party on this tab** → **Copy invite**, and sends it to friends.
+3. Friends click the extension icon → enter the **room code** → **Join**. Or they just open the invite link and click **Join party**.
+4. Play, pause or skip from anyone's screen and everyone follows. Chat appears on the right.
+
+### Everyday controls
+
+| To… | Do this |
 |---|---|
-| **Start a party** | Open a video → icon → *Start a party on this tab*. You're the host. |
-| **Invite** | *Copy invite* copies the code + the current video URL. |
-| **Join** | Open the same video → icon → paste code → *Join*. You jump to the host's position. |
-| **Host-only mode** | Host toggles *Only host controls playback*. Guests' play/pause/seek is reverted to the host's position (enforced by the server). |
-| **Chat** | Sidebar on the right. The page and video shrink to make room, so the chat never covers the movie. Collapse it with `›` (video goes full width again), reopen with the 💬 tab. Drag the chat's left edge to make it wider or narrower. 😊 opens the emoji picker. |
-| **Fullscreen** | Use the player's normal fullscreen button. During a party the whole screen is used: the video fills the left and the chat and call stay on the right, ready to type in. Press the button again or `Esc` to leave. |
-| **Reactions** | Tap an emoji in the bar above the message box. It floats over the video for everyone, with your name. |
-| **Video call** | 📹 in the chat header (or in the popup). Friends get a **Join call** button in the chat. By default you only see your friends; 🪞 shows your own camera too (click your preview to make it bigger or smaller). "● You're live" means your camera is on. Hover the call for controls: 🎤 mic, 📷 camera, 🪞 my video, 🔊 volume, ⇱ float/dock, ⧉ separate window, ✕ leave. **Make faces bigger:** drag the bar at the bottom of the docked call down, drag the chat's left edge wider, or float the call and drag its bottom-left corner. Double-click the bottom bar to reset. Double-click a face to switch between fill and fit. |
-| **🔊 Unmute** | Chrome blocks sound until you've clicked the page (e.g. right after a refresh). Instead of getting stuck, your video plays muted to stay in sync and the chat shows **🔊 Unmute**. |
-| **Invite link** | *Copy invite* copies a link like `…/watch?v=…#watchparty=ABC234`. Friends with the extension who open it get a **Join party** card. |
-| **Follow host** | When the host opens another video or episode, friends get **Go there** in the chat. |
-| **Edit name/avatar** | Popup → *Edit my name* (works mid-party). |
-| **Switch tabs** | If the party runs in another tab, the popup offers *Go there* / *Move party here*. |
-| **Leave** | *Leave party*, or close the tab. If the host leaves, the oldest member becomes host. |
+| Chat / react | Type in the sidebar, or tap an emoji above the message box |
+| Hide / show the chat | `›` in the chat header / the 💬 tab on the right edge |
+| Make the chat wider | Drag its left edge |
+| Fullscreen | Use the player's normal fullscreen button: video on the left, chat and call stay on the right |
+| Start a video call | 📹 in the chat header. Friends get a **Join call** button |
+| See yourself in the call | 🪞 in the call controls. Click your preview to make it bigger |
+| Make faces bigger | Drag the bar under the call down, or ⇱ to float the call and resize it from its corner |
+| Only the host controls playback | Popup → **Only host controls playback** |
+| Stop auto-following the host to other videos | Popup → turn off **Auto-follow video changes** |
+| Change your name / avatar | Popup → **Edit my name** |
 
-Everyone needs their **own account** on the streaming service, and should open the **same title/episode** before syncing.
+**Use headphones during calls.** Otherwise the movie's sound from your speakers goes into your mic.
 
 ---
 
-## How sync works
+## Optional: make video calls work on every network
 
-- **Events:** the content script hooks `play`, `pause`, `seeked`, `ratechange` (and `waiting`/`playing` for buffering) on the largest visible `<video>`, re-scanning with a `MutationObserver` because single-page sites swap players. The frame with the biggest video controls playback, so players inside iframes work too.
-- **Echo suppression:** when applying a remote command, the script records the events it expects to cause and drops them, plus a ~300ms quiet window. Heartbeats older than the latest command are ignored. This prevents play/pause loops.
-- **Drift correction:** the host sends a heartbeat every 3s. Guests compute `expected = hostTime + elapsed`. Drift > 1s → hard seek; 0.3-1s → playbackRate nudged to 0.95/1.05 until caught up (not on Netflix).
-- **Clock sync:** the server includes its clock in `pong`. The background estimates each client's clock offset, so elapsed-time maths doesn't depend on everyone's system clock being correct.
-- **Reconnects:** the background pings every 20s (this also keeps the MV3 service worker alive) and reconnects with exponential backoff (1s → 30s). Party state is in `chrome.storage.session`. A dropped connection keeps your slot (and host role) for 15s. After a server restart, clients recreate the room under the same code.
-- **Netflix:** seeking via `video.currentTime` crashes Netflix's player, so `page-bridge.js` runs in the page and uses Netflix's own player API (`videoPlayer.getVideoPlayerBySessionId(...).seek(ms)`), with a fallback if the API changes.
-- **YouTube:** handles SPA navigation (`yt-navigate-finish`) and pauses sync while an ad is showing, re-syncing afterwards.
+Video calls try to connect your computers directly. Many home and mobile networks (Jio, Airtel, office Wi-Fi, CGNAT) block that, and the call then shows *"Can't connect: your networks block direct video"*. A **TURN relay** fixes it. The host sets it up once, and friends don't need to do anything.
 
-### Server limits
-Max 20 members per room · messages ≤ 4 KB · chat ≤ 5 messages / 5s per person · rooms expire after 6 hours idle · every message is validated, unknown types are dropped · `hostOnlyControl` is enforced server-side.
+1. Create a free account at **[ExpressTURN](https://www.expressturn.com/)** (no credit card). The dashboard shows a **TURN server**, **Username** and **Password**. Metered, Cloudflare and other TURN servers also work.
+2. Run:
+   ```bash
+   ./scripts/setup-turn.sh
+   ```
+   Choose your provider and type in the values. They're saved to `server/.env`, which never goes into the zip or git, and the script logs in to the relay to confirm they work.
+3. Restart the server. It should print `video call relay (TURN): … ready ✓`.
+
+For Render or other hosts, set the same values as environment variables instead: `TURN_URLS`, `TURN_USERNAME`, `TURN_CREDENTIAL`.
 
 ---
 
-## Manual acceptance checklist
+## Updating
 
-- [ ] Two Chrome profiles, same YouTube video: play/pause/seek from either side syncs within ~1s; no infinite play/pause loops.
-- [ ] Host-only mode: guest's pause is reverted.
-- [ ] Late joiner jumps to the host's current position.
-- [ ] Kill and restart the server: both clients reconnect and rejoin automatically (popup goes *Reconnecting…* → *Connected*).
-- [ ] Netflix: seeking syncs without the player error.
-- [ ] Chat visible in fullscreen.
-- [ ] Host closes tab → another member becomes host.
+When the extension changes:
 
-## Video call notes
+1. The host bumps `"version"` in `extension/manifest.json`, then runs `./scripts/package-extension.sh` again and shares the new zip.
+2. Everyone replaces the files in their extension folder with the new zip's contents, clicks **↻** on the extension in `chrome://extensions`, and refreshes the video tab.
 
-- **Use headphones.** Otherwise the movie's sound from your speakers goes into your mic and your friend hears it twice.
-- **First time only:** Chrome may need camera/mic permission for the extension. If the call shows *Camera & mic access needed*, click **Allow camera & mic**. A tab opens, you choose **Allow**, and the call starts automatically. You can also **Join without camera** and still see and hear your friends.
-- Some sites block cameras inside their pages. The call then offers **Open call in a window**, a small separate window that works everywhere.
-- Video tries to go **directly between you and your friends** (peer-to-peer). Many home and mobile networks (Jio, Airtel, shared-IP/CGNAT, office Wi-Fi) block that, and the friend's tile then says *"Can't connect: your networks block direct video"*. **Fix, once, on the host's Mac:**
-  1. Create a free TURN relay account. **ExpressTURN** (expressturn.com) is free with no credit card; its dashboard shows a *TURN server*, *Username* and *Password*. (Also supported: Metered Open Relay, Cloudflare, or any TURN server.)
-  2. Run `./scripts/setup-turn.sh`, choose **1**, and type in those three values. They are saved to `server/.env` (only on your Mac, never in the zip), and the script logs in to the relay to prove they work.
-  3. Restart the server. It hands the relay to everyone who joins, so friends don't change anything. The server window prints `video call relay (TURN): static, ready ✓`.
-- Up to 8 people per call (everyone connects to everyone).
+If people in a party run different versions, the chat shows a warning. When the server code changes, the host restarts it (`Ctrl+C`, then `./scripts/start-server.sh`).
+
+---
 
 ## Troubleshooting
 
-- **"Could not reach the party server"**: check `SERVER_URL` in `extension/config.js` (must be `wss://` for hosted servers), and that `/health` returns `ok`. On Render's free tier, wait ~60s for it to wake up.
-- **Nothing syncs on a site**: reload the video tab after installing/updating the extension. Make sure both people are on the same video.
-- **"Your browser blocked autoplay"**: click play once on the video in that tab. After one interaction, sync continues normally.
-- **Fullscreen without chat**: during a party the player's fullscreen button makes the whole page fullscreen with the chat beside the video. If a site starts fullscreen in another way (e.g. double-click on some players, or a keyboard shortcut handled before the page loads), you may get the site's own fullscreen without the chat; press `Esc` and use the fullscreen button instead.
+| Problem | Fix |
+|---|---|
+| "Could not reach the party server" | Is the host's server running? Is `SERVER_URL` in `config.js` correct and starting with `wss://`? On Render, wait a minute for it to wake up. |
+| `ERR_NGROK_320` when starting | Your ngrok domain belongs to a different ngrok account than your authtoken. Run `ngrok config add-authtoken` with the token from the account that owns the domain. |
+| "Port 8080 is already in use" | Another program uses that port. `start-server.sh` replaces an old Tandem server automatically. Otherwise run with `PORT=8081 ./scripts/start-server.sh`. |
+| Nothing syncs | Refresh the video tab after installing or updating. Make sure everyone has the same episode open. |
+| 🔊 **Unmute** appears in the chat | Chrome blocks sound until you click the page. Your video plays muted to stay in sync, so click **Unmute**. |
+| Call stuck on "Connecting…" | Set up the [TURN relay](#optional-make-video-calls-work-on-every-network). |
+| "Stream limit reached" on the streaming site | Two people are using the same streaming account. Each person needs their own account, or a plan that allows more screens. |
+| Chat missing in fullscreen | Press `Esc` and use the player's fullscreen **button** (some keyboard shortcuts skip Tandem). |
+
+---
+
+## For developers
+
+```bash
+cd server && npm install && npm test     # server protocol tests
+```
+
+To try it on one machine: set `SERVER_URL` to `ws://localhost:8080`, run `npm start` in `server/`, and load the `extension/` folder unpacked in two Chrome profiles.
+
+**Privacy:** the server keeps rooms in memory only (nothing is stored on disk) and never sees your video, camera or microphone. Call media goes directly between participants, or through the TURN relay you configure.
