@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Watch Party · Video call</title>
+    <link rel="stylesheet" href="call.css" />
+  </head>
+  <body>
+    <!-- Remote participants only: you never see your own camera here (saves space). -->
+    <main id="stage">
+      <div id="tiles"></div>
+
+      <div id="empty" class="center-card" hidden>
+        <div class="big">📹</div>
+        <div class="title" id="empty-title">You're in the call</div>
+        <div class="sub" id="empty-sub">Waiting for friends to join… They can tap “Join call” in the chat.</div>
+      </div>
+
+      <div id="connecting" class="center-card" hidden>
+        <div class="spinner" aria-hidden="true"></div>
+        <div class="sub">Starting camera…</div>
+      </div>
+
+      <div id="setup" class="center-card" hidden>
+        <div class="big">🎥</div>
+        <div class="title" id="setup-title">Camera &amp; mic access needed</div>
+        <div class="sub" id="setup-text">Chrome needs your permission once. Click below, choose <b>Allow</b>, then come back here.</div>
+        <div class="actions">
+          <button type="button" class="btn primary" id="setup-rejoin" hidden>Turn camera &amp; mic on</button>
+          <button type="button" class="btn primary" id="setup-allow">Allow camera &amp; mic</button>
+          <button type="button" class="btn" id="setup-window">Open call in a window</button>
+          <button type="button" class="btn ghost" id="setup-nocam">Join without camera</button>
+        </div>
+      </div>
+
+      <div id="ended" class="center-card" hidden>
+        <div class="big">👋</div>
+        <div class="title">Call ended</div>
+      </div>
+
+      <div id="live" class="live" hidden><i></i><span id="live-text">Live</span></div>
+
+      <!-- Optional self-view (off by default to leave the space to your friends). Click: small/big. -->
+      <div id="self" class="self" hidden title="Click to make your preview bigger or smaller">
+        <video id="self-video" muted playsinline autoplay></video>
+      </div>
+
+      <button type="button" id="unmute-audio" class="unmute" hidden>🔊 Click to hear your friends</button>
+
+      <div id="toast" class="toast" hidden></div>
+
+      <nav id="controls" class="controls">
+        <button type="button" class="ctl" id="btn-mic" title="Mute microphone">🎤</button>
+        <button type="button" class="ctl" id="btn-cam" title="Turn camera off">📷</button>
+        <button type="button" class="ctl" id="btn-self" title="Show my video">🪞</button>
+        <label class="vol" title="Call volume">
+          <span aria-hidden="true">🔊</span>
+          <input type="range" id="volume" min="0" max="100" value="100" aria-label="Call volume" />
+        </label>
+        <button type="button" class="ctl" id="btn-layout" title="Float / dock">⇱</button>
+        <button type="button" class="ctl" id="btn-window" title="Open in a separate window">⧉</button>
+        <button type="button" class="ctl leave" id="btn-leave" title="Leave call">✕</button>
+      </nav>
+    </main>
+    <script src="../config.js"></script>
+    <script src="call.js"></script>
+  </body>
+</html>

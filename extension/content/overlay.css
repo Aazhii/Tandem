@@ -1,0 +1,755 @@
+/* Watch Party chat overlay — loaded into a Shadow DOM, isolated from the host page. */
+
+:host {
+  all: initial;
+}
+
+.wp {
+  --wp-bg: rgba(17, 17, 22, 0.92);
+  --wp-panel-border: rgba(255, 255, 255, 0.08);
+  --wp-text: #ececf1;
+  --wp-muted: #9a9aa8;
+  --wp-accent: #e5484d;
+  --wp-accent-2: #ff8a5b;
+  --wp-bubble: rgba(255, 255, 255, 0.06);
+  --wp-self: rgba(229, 72, 77, 0.18);
+  --wp-width: 320px;
+
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  display: flex;
+  align-items: flex-start;
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--wp-text);
+  pointer-events: none;
+  transition: transform 0.22s ease;
+}
+
+.wp *,
+.wp *::before,
+.wp *::after {
+  box-sizing: border-box;
+}
+
+.wp.wp-collapsed {
+  transform: translateX(var(--wp-width));
+}
+
+/* Toggle tab sticking out of the panel's left edge */
+.wp-tab {
+  pointer-events: auto;
+  position: relative;
+  margin-top: 96px;
+  width: 40px;
+  height: 44px;
+  border: 1px solid var(--wp-panel-border);
+  border-right: none;
+  border-radius: 10px 0 0 10px;
+  background: var(--wp-bg);
+  color: var(--wp-text);
+  cursor: pointer;
+  font-size: 18px;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.wp:not(.wp-collapsed) .wp-tab {
+  pointer-events: none;
+}
+
+.wp.wp-collapsed .wp-tab {
+  opacity: 1;
+}
+
+.wp-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--wp-accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+.wp-badge[hidden] {
+  display: none;
+}
+
+.wp-panel {
+  position: relative;
+  pointer-events: auto;
+  width: var(--wp-width);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--wp-bg);
+  border-left: 1px solid var(--wp-panel-border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: -8px 0 30px rgba(0, 0, 0, 0.35);
+}
+
+.wp-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 12px 10px 16px;
+  border-bottom: 1px solid var(--wp-panel-border);
+}
+
+.wp-title-box {
+  flex: 1;
+  min-width: 0;
+}
+
+.wp-title {
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.2px;
+  background: linear-gradient(90deg, var(--wp-accent), var(--wp-accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.wp-sub {
+  color: var(--wp-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wp-icon-btn {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--wp-muted);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.wp-icon-btn:hover {
+  background: var(--wp-bubble);
+  color: var(--wp-text);
+}
+
+.wp-close {
+  font-size: 22px;
+}
+
+.wp-call-btn.wp-call-live {
+  background: rgba(61, 214, 140, 0.18);
+  animation: wp-pulse 1.4s ease-in-out infinite;
+}
+
+.wp-call-btn.wp-call-active {
+  background: rgba(229, 72, 77, 0.22);
+}
+
+@keyframes wp-pulse {
+  50% {
+    box-shadow: 0 0 0 4px rgba(61, 214, 140, 0.15);
+  }
+}
+
+.wp-call-count {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: #3dd68c;
+  color: #0b0b0f;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 15px;
+  text-align: center;
+}
+
+.wp-call-count[hidden] {
+  display: none;
+}
+
+/* Space the docked video call occupies at the top of the sidebar */
+.wp-call-slot {
+  flex: none;
+  height: 0;
+}
+
+.wp-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--wp-panel-border);
+  max-height: 84px;
+  overflow-y: auto;
+}
+
+.wp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--wp-bubble);
+  font-size: 12px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wp-chip-off {
+  opacity: 0.45;
+}
+
+.wp-crown,
+.wp-chip-call {
+  font-size: 11px;
+}
+
+.wp-chip-avatar {
+  font-size: 12px;
+}
+
+.wp-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.wp-msg {
+  align-self: flex-start;
+  max-width: 88%;
+  padding: 6px 10px 7px;
+  border-radius: 12px 12px 12px 4px;
+  background: var(--wp-bubble);
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+
+.wp-msg.wp-self {
+  align-self: flex-end;
+  border-radius: 12px 12px 4px 12px;
+  background: var(--wp-self);
+}
+
+.wp-meta {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 1px;
+}
+
+.wp-avatar {
+  font-size: 13px;
+  align-self: center;
+}
+
+.wp-name {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--wp-accent-2);
+}
+
+.wp-self .wp-name {
+  color: var(--wp-text);
+}
+
+.wp-time {
+  font-size: 10px;
+  color: var(--wp-muted);
+}
+
+.wp-text {
+  white-space: pre-wrap;
+}
+
+.wp-system {
+  align-self: center;
+  max-width: 95%;
+  padding: 2px 10px;
+  border-radius: 999px;
+  color: var(--wp-muted);
+  font-size: 11.5px;
+  text-align: center;
+}
+
+.wp-action {
+  margin-top: 5px;
+  height: 26px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--wp-accent), var(--wp-accent-2));
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.wp-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Typing indicator */
+.wp-typing {
+  height: 0;
+  overflow: hidden;
+  padding: 0 16px;
+  color: var(--wp-muted);
+  font-size: 11.5px;
+  font-style: italic;
+  transition: height 0.15s ease;
+}
+
+.wp-typing.wp-typing-on {
+  height: 18px;
+}
+
+/* Reaction bar */
+.wp-reactions {
+  display: flex;
+  justify-content: space-between;
+  gap: 2px;
+  padding: 6px 10px 0;
+  border-top: 1px solid var(--wp-panel-border);
+}
+
+.wp-react {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 0.1s ease, background 0.1s ease;
+}
+
+.wp-react:hover {
+  background: var(--wp-bubble);
+  transform: scale(1.18);
+}
+
+.wp-react:active {
+  transform: scale(0.9);
+}
+
+/* Emoji picker */
+.wp-picker {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  margin: 0 10px 6px;
+  padding: 6px;
+  max-height: 150px;
+  overflow-y: auto;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--wp-panel-border);
+}
+
+.wp-picker[hidden] {
+  display: none;
+}
+
+.wp-pick {
+  height: 30px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.wp-pick:hover {
+  background: var(--wp-bubble);
+}
+
+.wp-emoji-btn {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border: 1px solid var(--wp-panel-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 17px;
+  cursor: pointer;
+}
+
+.wp-form {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px 14px;
+}
+
+.wp-input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--wp-panel-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--wp-text);
+  font: inherit;
+  outline: none;
+}
+
+.wp-input:focus {
+  border-color: var(--wp-accent);
+}
+
+.wp-input::placeholder {
+  color: var(--wp-muted);
+}
+
+.wp-send {
+  height: 36px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--wp-accent), var(--wp-accent-2));
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wp-send:hover {
+  filter: brightness(1.08);
+}
+
+/* ---------------------------------------------------------------- */
+/* Floating reactions (over the video)                              */
+/* ---------------------------------------------------------------- */
+
+.wp-fx {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.wp-float {
+  position: absolute;
+  bottom: 70px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  transform: translateX(-50%);
+  animation: wp-rise var(--dur, 2.6s) ease-out forwards;
+  will-change: transform, opacity;
+}
+
+.wp-float-emoji {
+  font-size: 40px;
+  line-height: 1;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.45));
+}
+
+.wp-float-name {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font: 600 11px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  white-space: nowrap;
+}
+
+@keyframes wp-rise {
+  0% {
+    transform: translate(-50%, 20px) scale(0.6);
+    opacity: 0;
+  }
+  12% {
+    transform: translate(-50%, 0) scale(1.15);
+    opacity: 1;
+  }
+  25% {
+    transform: translate(calc(-50% + var(--drift) * 0.3), -8vh) scale(1);
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(calc(-50% + var(--drift)), -48vh) scale(0.9);
+    opacity: 0;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* Video call container                                              */
+/* ---------------------------------------------------------------- */
+
+.wp-callbox {
+  position: fixed;
+  pointer-events: auto;
+  background: #0c0c10;
+  overflow: hidden;
+  transition: box-shadow 0.15s ease;
+}
+
+.wp-callbox.wp-floating {
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+}
+
+.wp-callbox.wp-docked {
+  border-bottom: 1px solid var(--wp-panel-border, rgba(255, 255, 255, 0.08));
+}
+
+.wp-call-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+  background: #0c0c10;
+}
+
+.wp-callbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start; /* keep the right side free for the "You're live" pill */
+  gap: 8px;
+  padding: 0 4px 0 10px;
+  background: linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0));
+  color: #ececf1;
+  font: 600 11px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  user-select: none;
+}
+
+.wp-callbox:hover .wp-callbar {
+  opacity: 1;
+}
+
+.wp-floating .wp-callbar {
+  cursor: grab;
+}
+
+.wp-floating .wp-callbar:active {
+  cursor: grabbing;
+}
+
+.wp-docked .wp-callbar-grip {
+  visibility: hidden;
+}
+
+.wp-callbar-btn {
+  height: 20px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.wp-callbar-btn:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.wp-callresize {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nesw-resize;
+  background: linear-gradient(45deg, rgba(255, 255, 255, 0.5) 0 2px, transparent 2px 5px, rgba(255, 255, 255, 0.5) 5px 7px, transparent 7px);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.wp-floating:hover .wp-callresize {
+  opacity: 0.8;
+}
+
+.wp-docked .wp-callresize {
+  display: none;
+}
+
+/* ---------------------------------------------------------------- */
+/* Invite card                                                       */
+/* ---------------------------------------------------------------- */
+
+.wp-invite {
+  --wp-text: #ececf1;
+  --wp-muted: #9a9aa8;
+  --wp-accent: #e5484d;
+  --wp-accent-2: #ff8a5b;
+  --wp-panel-border: rgba(255, 255, 255, 0.1);
+  --wp-bubble: rgba(255, 255, 255, 0.06);
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(17, 17, 22, 0.96);
+  border: 1px solid var(--wp-panel-border);
+  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.5);
+  color: var(--wp-text);
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  animation: wp-pop 0.25s ease-out;
+}
+
+@keyframes wp-pop {
+  from {
+    transform: translateY(12px) scale(0.97);
+    opacity: 0;
+  }
+}
+
+.wp-invite-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.wp-invite-icon {
+  font-size: 26px;
+}
+
+.wp-invite-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.wp-invite .wp-input {
+  flex: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.wp-invite-join {
+  width: 100%;
+}
+
+.wp-invite-join:disabled {
+  opacity: 0.6;
+}
+
+.wp-invite-err {
+  color: #ff8b8e;
+  font-size: 12px;
+}
+
+.wp-invite-err:empty {
+  display: none;
+}
+
+/* ---------------------------------------------------------------- */
+/* Resize handles: chat width (left edge) and docked call height    */
+/* ---------------------------------------------------------------- */
+
+.wp-panel-resize {
+  position: absolute;
+  left: -5px;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  cursor: ew-resize;
+  z-index: 2;
+}
+
+.wp-panel-resize::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  width: 3px;
+  height: 44px;
+  margin-top: -22px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.35);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.wp-panel-resize:hover::after,
+.wp.wp-resizing .wp-panel-resize::after {
+  opacity: 1;
+}
+
+.wp.wp-resizing {
+  transition: none;
+}
+
+.wp-dockresize {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 10px;
+  cursor: ns-resize;
+  z-index: 3;
+}
+
+.wp-dockresize::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 3px;
+  width: 44px;
+  height: 4px;
+  margin-left: -22px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.55);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.wp-docked:hover .wp-dockresize::after {
+  opacity: 1;
+}
+
+.wp-floating .wp-dockresize {
+  display: none;
+}

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Watch Party · Allow camera &amp; microphone</title>
+    <link rel="stylesheet" href="call.css" />
+    <style>
+      body { overflow: auto; }
+      .wrap { min-height: 100%; display: grid; place-items: center; padding: 24px; }
+      .card { max-width: 440px; text-align: center; display: flex; flex-direction: column; gap: 10px; align-items: center; }
+      h1 { margin: 0; font-size: 20px; }
+      p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+      .big { font-size: 44px; }
+      .btn { height: 38px; font-size: 14px; padding: 0 18px; }
+      .ok { color: var(--ok); }
+      .err { color: #ff8b8e; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <div class="big">🎥</div>
+        <h1>Allow camera &amp; microphone</h1>
+        <p>Watch Party needs your camera and mic for the video call. Your video goes directly to your friends — it never touches a server.</p>
+        <p id="status">Chrome will ask you now — choose <b>Allow</b>.</p>
+        <button type="button" class="btn primary" id="retry">Ask again</button>
+      </div>
+    </div>
+    <script src="permission.js"></script>
+  </body>
+</html>

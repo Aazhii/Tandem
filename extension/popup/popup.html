@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Watch Party</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <header class="top">
+        <img src="../icons/icon48.png" alt="" class="logo" width="28" height="28" />
+        <h1>Watch Party</h1>
+        <span class="status" id="status" data-status="idle"><i></i><span id="status-text">Offline</span></span>
+      </header>
+
+      <div class="banner warn" id="warning" hidden></div>
+      <div class="banner err" id="error" hidden>
+        <span id="error-text"></span>
+        <button type="button" class="link" id="error-dismiss" aria-label="Dismiss">✕</button>
+      </div>
+
+      <!-- Not in a party -->
+      <section id="view-lobby" hidden>
+        <label class="field">
+          <span>Your nickname</span>
+          <input id="nickname" type="text" maxlength="24" placeholder="e.g. Sam" autocomplete="off" />
+        </label>
+        <div class="field">
+          <span>Your avatar</span>
+          <div class="avatars" id="avatars" role="radiogroup" aria-label="Avatar"></div>
+        </div>
+
+        <button type="button" class="btn primary" id="create">Start a party on this tab</button>
+        <p class="hint" id="create-hint"></p>
+
+        <div class="divider"><span>or join a friend</span></div>
+
+        <form class="row" id="join-form">
+          <input id="code" type="text" maxlength="6" placeholder="ROOM CODE" autocomplete="off" spellcheck="false" aria-label="Room code" />
+          <button type="submit" class="btn" id="join">Join</button>
+        </form>
+        <p class="hint">Open the same video as your friend first, then join. Each person needs their own account for the streaming site.</p>
+      </section>
+
+      <!-- In a party -->
+      <section id="view-party" hidden>
+        <div class="code-card">
+          <div class="code-label">Party code</div>
+          <div class="code" id="room-code">——————</div>
+          <button type="button" class="btn small" id="copy">Copy invite</button>
+        </div>
+
+        <div class="call-card" id="call-card">
+          <button type="button" class="btn call" id="call-btn">📹 Start video call</button>
+          <button type="button" class="btn small danger" id="call-leave" hidden>Leave call</button>
+          <p class="hint" id="call-hint">Opens in the chat sidebar. You'll see your friends' faces — not your own.</p>
+        </div>
+
+        <div class="banner info" id="other-tab" hidden>
+          <span>The party is running in another tab.</span>
+          <div class="banner-actions">
+            <button type="button" class="link" id="go-tab">Go there</button>
+            <button type="button" class="link" id="use-tab">Move party here</button>
+          </div>
+        </div>
+
+        <label class="toggle" id="host-only-row">
+          <input type="checkbox" id="host-only" />
+          <span class="switch" aria-hidden="true"></span>
+          <span class="toggle-text">Only host controls playback</span>
+        </label>
+        <p class="hint" id="host-only-note"></p>
+
+        <label class="toggle" id="auto-follow-row">
+          <input type="checkbox" id="auto-follow" />
+          <span class="switch" aria-hidden="true"></span>
+          <span class="toggle-text">Auto-follow video changes</span>
+        </label>
+        <p class="hint" id="auto-follow-note"></p>
+
+        <h2>Watching <span class="count" id="count">0</span>
+          <button type="button" class="link edit-profile" id="edit-profile">Edit my name</button>
+        </h2>
+        <form class="profile-edit" id="profile-edit" hidden>
+          <input id="edit-nickname" type="text" maxlength="24" autocomplete="off" aria-label="Nickname" />
+          <div class="avatars" id="edit-avatars" role="radiogroup" aria-label="Avatar"></div>
+          <div class="row">
+            <button type="submit" class="btn small">Save</button>
+            <button type="button" class="btn small ghost" id="edit-cancel">Cancel</button>
+          </div>
+        </form>
+        <ul class="members" id="members"></ul>
+
+        <button type="button" class="btn danger" id="leave">Leave party</button>
+      </section>
+
+      <footer>
+        <span>v<span id="version"></span></span>
+        <span class="server" id="server" title=""></span>
+      </footer>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
